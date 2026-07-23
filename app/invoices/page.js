@@ -686,6 +686,12 @@ export default function InvoicesPage() {
           totals.total.toFixed(2)
         ),
 
+        // Manually-created invoices default to no outside-company commission.
+        internal_amount: Number(
+          totals.total.toFixed(2)
+        ),
+        agency_commission: 0,
+
         amount_paid:
           form.status === "paid"
             ? Number(
@@ -1615,11 +1621,15 @@ export default function InvoicesPage() {
                   </th>
 
                   <th className="w-[9%] px-3 py-4 xl:px-4">
-                    Total
+                    Invoice total
+                  </th>
+
+                  <th className="w-[9%] px-3 py-4 xl:px-4">
+                    My money
                   </th>
 
                   <th className="hidden w-[9%] px-3 py-4 2xl:table-cell 2xl:px-4">
-                    Balance
+                    Other company
                   </th>
 
                   <th className="w-[9%] px-3 py-4 xl:px-4">
@@ -1700,14 +1710,28 @@ export default function InvoicesPage() {
                         </td>
 
                         <td className="px-3 py-4 font-semibold xl:px-4">
+                          {formatMoney(invoice.total)}
+                        </td>
+
+                        <td className="px-3 py-4 font-semibold text-green-700 xl:px-4">
                           {formatMoney(
-                            invoice.total
+                            invoice.internal_amount ??
+                              invoice.total
                           )}
                         </td>
 
-                        <td className="hidden px-3 py-4 font-semibold 2xl:table-cell 2xl:px-4">
+                        <td className="hidden px-3 py-4 font-semibold text-purple-700 2xl:table-cell 2xl:px-4">
                           {formatMoney(
-                            invoice.balance_due
+                            invoice.agency_commission ??
+                              Math.max(
+                                0,
+                                Number(invoice.total || 0) -
+                                  Number(
+                                    invoice.internal_amount ??
+                                      invoice.total ??
+                                      0
+                                  )
+                              )
                           )}
                         </td>
 
@@ -1875,10 +1899,41 @@ export default function InvoicesPage() {
 
                     <div>
                       <dt className="text-slate-500">
-                        Total
+                        Invoice total
                       </dt>
                       <dd className="mt-1 font-bold">
                         {formatMoney(invoice.total)}
+                      </dd>
+                    </div>
+
+                    <div>
+                      <dt className="text-slate-500">
+                        My money
+                      </dt>
+                      <dd className="mt-1 font-bold text-green-700">
+                        {formatMoney(
+                          invoice.internal_amount ?? invoice.total
+                        )}
+                      </dd>
+                    </div>
+
+                    <div>
+                      <dt className="text-slate-500">
+                        Other company
+                      </dt>
+                      <dd className="mt-1 font-bold text-purple-700">
+                        {formatMoney(
+                          invoice.agency_commission ??
+                            Math.max(
+                              0,
+                              Number(invoice.total || 0) -
+                                Number(
+                                  invoice.internal_amount ??
+                                    invoice.total ??
+                                    0
+                                )
+                            )
+                        )}
                       </dd>
                     </div>
 

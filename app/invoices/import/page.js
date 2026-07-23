@@ -560,11 +560,27 @@ export default function ImportInvoicesPage() {
           const description =
             clean(cells[3]);
 
-          const standardAmount =
+          // Column E is Right Inventories' own earnings.
+          const internalAmount =
             parseAmount(cells[4]);
 
-          const alternativeAmount =
+          // When Column F contains a value, that is the amount shown
+          // on the customer invoice. Otherwise Column E is used.
+          const columnFInvoiceAmount =
             parseAmount(cells[5]);
+
+          const invoiceAmount =
+            columnFInvoiceAmount > 0
+              ? columnFInvoiceAmount
+              : internalAmount;
+
+          const agencyCommission =
+            Math.max(
+              0,
+              Number(
+                (invoiceAmount - internalAmount).toFixed(2)
+              )
+            );
 
           const clientText =
             clean(cells[2]);
@@ -616,17 +632,14 @@ export default function ImportInvoicesPage() {
               parsedAddress.postcode,
 
             description,
-            standard_amount:
-              standardAmount,
-            alternative_amount:
-              alternativeAmount,
-            amount_source:
-              standardAmount > 0
-                ? "standard"
-                : "alternative",
+            internal_amount:
+              internalAmount,
+            invoice_amount:
+              invoiceAmount,
+            agency_commission:
+              agencyCommission,
             selected_amount:
-              standardAmount ||
-              alternativeAmount,
+              invoiceAmount,
             selected: false,
             active_duplicate: false,
             deleted_invoice_id: null,
@@ -696,19 +709,6 @@ export default function ImportInvoicesPage() {
           ...row,
           ...changes,
         };
-
-        if (
-          Object.prototype.hasOwnProperty.call(
-            changes,
-            "amount_source"
-          )
-        ) {
-          updated.selected_amount =
-            changes.amount_source ===
-            "alternative"
-              ? row.alternative_amount
-              : row.standard_amount;
-        }
 
         if (
           Object.prototype.hasOwnProperty.call(
@@ -961,7 +961,18 @@ export default function ImportInvoicesPage() {
             );
 
           const amount = Number(
-            row.selected_amount
+            row.invoice_amount ||
+              row.selected_amount ||
+              0
+          );
+
+          const internalAmount = Number(
+            row.internal_amount || amount
+          );
+
+          const agencyCommission = Number(
+            row.agency_commission ??
+              Math.max(0, amount - internalAmount)
           );
 
           const invoicePayload = {
@@ -978,6 +989,12 @@ export default function ImportInvoicesPage() {
             subtotal: amount,
             vat_total: 0,
             total: amount,
+            internal_amount: Number(
+              internalAmount.toFixed(2)
+            ),
+            agency_commission: Number(
+              agencyCommission.toFixed(2)
+            ),
             amount_paid: 0,
             balance_due: amount,
             customer_name:
@@ -1268,13 +1285,13 @@ export default function ImportInvoicesPage() {
                     Description
                   </th>
                   <th className="px-4 py-3">
-                    Column E
+                    My money
                   </th>
                   <th className="px-4 py-3">
-                    Column F
+                    Invoice total
                   </th>
                   <th className="px-4 py-3">
-                    Amount used
+                    Other company
                   </th>
                   <th className="px-4 py-3">
                     Status
@@ -1598,51 +1615,22 @@ export default function ImportInvoicesPage() {
                         />
                       </td>
 
-                      <td className="px-4 py-3">
+                      <td className="px-4 py-3 font-semibold text-green-700">
                         {formatMoney(
-                          row.standard_amount
+                          row.internal_amount
                         )}
                       </td>
 
-                      <td className="px-4 py-3">
-                        {row.alternative_amount
-                          ? formatMoney(
-                              row.alternative_amount
-                            )
-                          : "—"}
+                      <td className="px-4 py-3 font-semibold">
+                        {formatMoney(
+                          row.invoice_amount
+                        )}
                       </td>
 
-                      <td className="px-4 py-3">
-                        <select
-                          value={
-                            row.amount_source
-                          }
-                          onChange={(event) =>
-                            updateRow(row.id, {
-                              amount_source:
-                                event.target
-                                  .value,
-                            })
-                          }
-                          className="rounded border border-slate-300 px-2 py-2"
-                        >
-                          <option value="standard">
-                            Column E —{" "}
-                            {formatMoney(
-                              row.standard_amount
-                            )}
-                          </option>
-
-                          {row.alternative_amount >
-                            0 && (
-                            <option value="alternative">
-                              Column F —{" "}
-                              {formatMoney(
-                                row.alternative_amount
-                              )}
-                            </option>
-                          )}
-                        </select>
+                      <td className="px-4 py-3 font-semibold text-purple-700">
+                        {formatMoney(
+                          row.agency_commission
+                        )}
                       </td>
 
                       <td className="px-4 py-3">

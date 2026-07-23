@@ -39,6 +39,7 @@ export default function EditInvoicePage() {
     use_due_date: false,
     due_date: "",
     status: "unpaid",
+    internal_amount: "",
   });
 
   const [items, setItems] = useState([emptyItem()]);
@@ -136,7 +137,10 @@ export default function EditInvoicePage() {
                 due_date,
                 status,
                 notes,
+                total,
                 amount_paid,
+                internal_amount,
+                agency_commission,
                 paid_at,
                 deleted_at,
                 invoice_items(
@@ -179,6 +183,9 @@ export default function EditInvoicePage() {
         use_due_date: Boolean(invoice.due_date),
         due_date: invoice.due_date || "",
         status: invoice.status || "unpaid",
+        internal_amount: String(
+          invoice.internal_amount ?? invoice.total ?? 0
+        ),
       });
 
       const editableItems =
@@ -376,6 +383,16 @@ export default function EditInvoicePage() {
       const roundedSubtotal = Number(totals.subtotal.toFixed(2));
       const roundedVat = Number(totals.vat.toFixed(2));
       const roundedTotal = Number(totals.total.toFixed(2));
+      const enteredInternalAmount = Number(form.internal_amount);
+      const roundedInternalAmount = Number(
+        (Number.isFinite(enteredInternalAmount) && enteredInternalAmount >= 0
+          ? enteredInternalAmount
+          : roundedTotal
+        ).toFixed(2)
+      );
+      const roundedAgencyCommission = Number(
+        Math.max(0, roundedTotal - roundedInternalAmount).toFixed(2)
+      );
       const isPaid = form.status === "paid";
       const isCancelled = form.status === "cancelled";
 
@@ -393,6 +410,8 @@ export default function EditInvoicePage() {
         subtotal: roundedSubtotal,
         vat_total: roundedVat,
         total: roundedTotal,
+        internal_amount: roundedInternalAmount,
+        agency_commission: roundedAgencyCommission,
         amount_paid: isPaid ? roundedTotal : 0,
         balance_due: isPaid || isCancelled ? 0 : roundedTotal,
         customer_name: selectedClient.company_name || selectedClient.name,
@@ -794,6 +813,31 @@ export default function EditInvoicePage() {
                 <strong>{formatMoney(totals.total)}</strong>
               </div>
             </div>
+          </div>
+
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-5">
+            <label className="mb-2 block text-sm font-semibold">
+              My money (Right Inventories)
+            </label>
+            <input
+              type="number"
+              name="internal_amount"
+              min="0"
+              step="0.01"
+              value={form.internal_amount}
+              onChange={updateFormField}
+              disabled={saving}
+              className="w-full max-w-xs rounded-lg border border-slate-300 px-4 py-3 disabled:bg-slate-100"
+            />
+            <p className="mt-2 text-sm text-slate-500">
+              Customer invoice total: {formatMoney(totals.total)}. Other company commission:{" "}
+              {formatMoney(
+                Math.max(
+                  0,
+                  totals.total - Number(form.internal_amount || totals.total)
+                )
+              )}.
+            </p>
           </div>
 
           <div className="flex flex-wrap gap-3 border-t border-slate-200 pt-6">
