@@ -1629,6 +1629,10 @@ export default function InvoicesPage() {
                   </th>
 
                   <th className="hidden w-[9%] px-3 py-4 2xl:table-cell 2xl:px-4">
+                    Difference
+                  </th>
+
+                  <th className="hidden w-[9%] px-3 py-4 2xl:table-cell 2xl:px-4">
                     Other company
                   </th>
 
@@ -1717,6 +1721,20 @@ export default function InvoicesPage() {
                           {formatMoney(
                             invoice.internal_amount ??
                               invoice.total
+                          )}
+                        </td>
+
+                        <td className="hidden px-3 py-4 font-semibold text-blue-700 2xl:table-cell 2xl:px-4">
+                          {formatMoney(
+                            Math.max(
+                              0,
+                              Number(invoice.total || 0) -
+                                Number(
+                                  invoice.internal_amount ??
+                                    invoice.total ??
+                                    0
+                                )
+                            )
                           )}
                         </td>
 
@@ -1913,6 +1931,25 @@ export default function InvoicesPage() {
                       <dd className="mt-1 font-bold text-green-700">
                         {formatMoney(
                           invoice.internal_amount ?? invoice.total
+                        )}
+                      </dd>
+                    </div>
+
+                    <div>
+                      <dt className="text-slate-500">
+                        Difference
+                      </dt>
+                      <dd className="mt-1 font-bold text-blue-700">
+                        {formatMoney(
+                          Math.max(
+                            0,
+                            Number(invoice.total || 0) -
+                              Number(
+                                invoice.internal_amount ??
+                                  invoice.total ??
+                                  0
+                              )
+                          )
                         )}
                       </dd>
                     </div>
