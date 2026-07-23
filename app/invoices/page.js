@@ -1596,8 +1596,8 @@ export default function InvoicesPage() {
           </div>
         ) : (
           <>
-            <div className="hidden w-full max-w-full overflow-hidden lg:block">
-            <table className="w-full table-fixed text-left">
+            <div className="hidden w-full max-w-full overflow-x-auto lg:block">
+            <table className="min-w-[1500px] w-full table-auto text-left">
               <thead className="bg-slate-50 text-sm text-slate-500">
                 <tr>
                   <th className="w-[9%] whitespace-nowrap px-3 py-4 xl:px-4">
@@ -1625,14 +1625,14 @@ export default function InvoicesPage() {
                   </th>
 
                   <th className="w-[9%] px-3 py-4 xl:px-4">
-                    My money
+                    Right Inventories
                   </th>
 
-                  <th className="hidden w-[9%] px-3 py-4 2xl:table-cell 2xl:px-4">
+                  <th className="w-[9%] whitespace-nowrap px-3 py-4 xl:px-4">
                     Difference
                   </th>
 
-                  <th className="hidden w-[9%] px-3 py-4 2xl:table-cell 2xl:px-4">
+                  <th className="w-[9%] whitespace-nowrap px-3 py-4 xl:px-4">
                     Other company
                   </th>
 
@@ -1724,7 +1724,7 @@ export default function InvoicesPage() {
                           )}
                         </td>
 
-                        <td className="hidden px-3 py-4 font-semibold text-blue-700 2xl:table-cell 2xl:px-4">
+                        <td className="px-3 py-4 font-semibold text-blue-700 xl:px-4">
                           {formatMoney(
                             Math.max(
                               0,
@@ -1738,7 +1738,7 @@ export default function InvoicesPage() {
                           )}
                         </td>
 
-                        <td className="hidden px-3 py-4 font-semibold text-purple-700 2xl:table-cell 2xl:px-4">
+                        <td className="px-3 py-4 font-semibold text-purple-700 xl:px-4">
                           {formatMoney(
                             invoice.agency_commission ??
                               Math.max(
@@ -1926,7 +1926,7 @@ export default function InvoicesPage() {
 
                     <div>
                       <dt className="text-slate-500">
-                        My money
+                        Right Inventories
                       </dt>
                       <dd className="mt-1 font-bold text-green-700">
                         {formatMoney(
