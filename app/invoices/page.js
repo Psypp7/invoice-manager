@@ -1597,50 +1597,46 @@ export default function InvoicesPage() {
         ) : (
           <>
             <div className="hidden w-full max-w-full overflow-x-auto lg:block">
-            <table className="min-w-[1500px] w-full table-auto text-left">
+            <table className="w-full min-w-[1180px] table-fixed text-left">
               <thead className="bg-slate-50 text-sm text-slate-500">
                 <tr>
-                  <th className="w-[9%] whitespace-nowrap px-3 py-4 xl:px-4">
+                  <th className="w-[8%] whitespace-nowrap px-2 py-4 xl:px-3">
                     Invoice
                   </th>
 
-                  <th className="w-[14%] px-3 py-4 xl:px-4">
+                  <th className="w-[13%] px-2 py-4 xl:px-3">
                     Client
                   </th>
 
-                  <th className="w-[27%] px-3 py-4 xl:px-4">
+                  <th className="w-[23%] px-2 py-4 xl:px-3">
                     Property
                   </th>
 
-                  <th className="w-[9%] px-3 py-4 xl:px-4">
+                  <th className="w-[8%] px-2 py-4 xl:px-3">
                     Issued
                   </th>
 
-                  <th className="hidden w-[11%] px-3 py-4 xl:table-cell xl:px-4">
+                  <th className="hidden w-[10%] px-2 py-4 xl:table-cell xl:px-3">
                     Payment
                   </th>
 
-                  <th className="w-[9%] px-3 py-4 xl:px-4">
+                  <th className="w-[9%] px-2 py-4 xl:px-3">
                     Invoice total
                   </th>
 
-                  <th className="w-[9%] px-3 py-4 xl:px-4">
-                    Right Inventories
+                  <th className="w-[9%] px-2 py-4 xl:px-3">
+                    My money
                   </th>
 
-                  <th className="w-[9%] whitespace-nowrap px-3 py-4 xl:px-4">
-                    Difference
-                  </th>
-
-                  <th className="w-[9%] whitespace-nowrap px-3 py-4 xl:px-4">
+                  <th className="w-[9%] px-2 py-4 xl:px-3">
                     Other company
                   </th>
 
-                  <th className="w-[9%] px-3 py-4 xl:px-4">
+                  <th className="w-[8%] px-2 py-4 xl:px-3">
                     Status
                   </th>
 
-                  <th className="w-[14%] px-3 py-4 xl:px-4">
+                  <th className="w-[12%] px-2 py-4 xl:px-3">
                     Actions
                   </th>
                 </tr>
@@ -1724,7 +1720,7 @@ export default function InvoicesPage() {
                           )}
                         </td>
 
-                        <td className="px-3 py-4 font-semibold text-blue-700 xl:px-4">
+                        <td className="px-2 py-4 font-semibold text-purple-700 xl:px-3">
                           {formatMoney(
                             Math.max(
                               0,
@@ -1735,21 +1731,6 @@ export default function InvoicesPage() {
                                     0
                                 )
                             )
-                          )}
-                        </td>
-
-                        <td className="px-3 py-4 font-semibold text-purple-700 xl:px-4">
-                          {formatMoney(
-                            invoice.agency_commission ??
-                              Math.max(
-                                0,
-                                Number(invoice.total || 0) -
-                                  Number(
-                                    invoice.internal_amount ??
-                                      invoice.total ??
-                                      0
-                                  )
-                              )
                           )}
                         </td>
 
@@ -1926,7 +1907,7 @@ export default function InvoicesPage() {
 
                     <div>
                       <dt className="text-slate-500">
-                        Right Inventories
+                        My money
                       </dt>
                       <dd className="mt-1 font-bold text-green-700">
                         {formatMoney(
@@ -1937,9 +1918,9 @@ export default function InvoicesPage() {
 
                     <div>
                       <dt className="text-slate-500">
-                        Difference
+                        Other company
                       </dt>
-                      <dd className="mt-1 font-bold text-blue-700">
+                      <dd className="mt-1 font-bold text-purple-700">
                         {formatMoney(
                           Math.max(
                             0,
@@ -1950,26 +1931,6 @@ export default function InvoicesPage() {
                                   0
                               )
                           )
-                        )}
-                      </dd>
-                    </div>
-
-                    <div>
-                      <dt className="text-slate-500">
-                        Other company
-                      </dt>
-                      <dd className="mt-1 font-bold text-purple-700">
-                        {formatMoney(
-                          invoice.agency_commission ??
-                            Math.max(
-                              0,
-                              Number(invoice.total || 0) -
-                                Number(
-                                  invoice.internal_amount ??
-                                    invoice.total ??
-                                    0
-                                )
-                            )
                         )}
                       </dd>
                     </div>

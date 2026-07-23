@@ -313,10 +313,6 @@ function rowProblem(row) {
     return "Postcode is required";
   }
 
-  if (row.active_duplicate) {
-    return "Already exists in active invoices";
-  }
-
   return "";
 }
 
@@ -755,9 +751,6 @@ export default function ImportInvoicesPage() {
               invoiceNumber
             ) || null;
 
-          if (updated.active_duplicate) {
-            updated.selected = false;
-          }
         }
 
         return updated;
@@ -769,13 +762,12 @@ export default function ImportInvoicesPage() {
     setRows((current) =>
       current.map((row) => ({
         ...row,
-        selected:
-          !row.active_duplicate,
+        selected: !rowProblem(row),
       }))
     );
 
     setMessage(
-      "Selected every invoice number that does not currently exist in active invoices."
+      "Selected all valid spreadsheet invoices. Existing invoices will be updated and new invoices will be created."
     );
   }
 
@@ -1016,8 +1008,65 @@ export default function ImportInvoicesPage() {
           };
 
           let createdInvoice;
+          let replacedExistingItems = false;
 
-          if (row.deleted_invoice_id) {
+          if (row.active_duplicate) {
+            const {
+              data: existingInvoice,
+              error: existingInvoiceError,
+            } = await supabase
+              .from("invoices")
+              .select("id")
+              .eq("business_id", business.id)
+              .eq(
+                "invoice_number",
+                row.invoice_number
+              )
+              .is("deleted_at", null)
+              .maybeSingle();
+
+            if (existingInvoiceError) {
+              throw existingInvoiceError;
+            }
+
+            if (!existingInvoice?.id) {
+              throw new Error(
+                `${row.invoice_number} was marked as existing but could not be found. Reload the spreadsheet and try again.`
+              );
+            }
+
+            const {
+              data: updatedInvoice,
+              error: updateError,
+            } = await supabase
+              .from("invoices")
+              .update(invoicePayload)
+              .eq("id", existingInvoice.id)
+              .eq("business_id", business.id)
+              .select("id")
+              .single();
+
+            if (updateError) {
+              throw updateError;
+            }
+
+            const {
+              error: oldItemsError,
+            } = await supabase
+              .from("invoice_items")
+              .delete()
+              .eq(
+                "invoice_id",
+                existingInvoice.id
+              );
+
+            if (oldItemsError) {
+              throw oldItemsError;
+            }
+
+            createdInvoice = updatedInvoice;
+            replacedExistingItems = true;
+          } else if (row.deleted_invoice_id) {
             const {
               data: restoredInvoice,
               error: restoreError,
@@ -1053,8 +1102,8 @@ export default function ImportInvoicesPage() {
               throw oldItemsError;
             }
 
-            createdInvoice =
-              restoredInvoice;
+            createdInvoice = restoredInvoice;
+            replacedExistingItems = true;
           } else {
             const {
               data: insertedInvoice,
@@ -1069,8 +1118,7 @@ export default function ImportInvoicesPage() {
               throw invoiceError;
             }
 
-            createdInvoice =
-              insertedInvoice;
+            createdInvoice = insertedInvoice;
           }
 
           const { error: itemError } =
@@ -1091,7 +1139,11 @@ export default function ImportInvoicesPage() {
               });
 
           if (itemError) {
-            if (!row.deleted_invoice_id) {
+            if (
+              !row.deleted_invoice_id &&
+              !row.active_duplicate &&
+              !replacedExistingItems
+            ) {
               await supabase
                 .from("invoices")
                 .delete()
@@ -1234,7 +1286,7 @@ export default function ImportInvoicesPage() {
                 disabled={importing}
                 className="rounded-lg border border-green-600 px-5 py-3 font-semibold text-green-700 hover:bg-green-50 disabled:opacity-50"
               >
-                Select invoices not in system
+                Select all valid invoices
               </button>
 
               <button
@@ -1313,9 +1365,6 @@ export default function ImportInvoicesPage() {
                         <input
                           type="checkbox"
                           checked={row.selected}
-                          disabled={
-                            row.active_duplicate
-                          }
                           onChange={(event) =>
                             updateRow(row.id, {
                               selected:
