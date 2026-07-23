@@ -238,6 +238,10 @@ export default function InvoicesPage() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
 
+  const [invoiceToMarkPaid, setInvoiceToMarkPaid] = useState(null);
+  const [paidDate, setPaidDate] = useState(getToday());
+  const [savingPaidDate, setSavingPaidDate] = useState(false);
+
   const [invoiceToDelete, setInvoiceToDelete] = useState(null);
   const [deleteStep, setDeleteStep] = useState(1);
   const [deleteConfirmation, setDeleteConfirmation] = useState("");
@@ -822,49 +826,69 @@ export default function InvoicesPage() {
     }
   }
 
-  async function markAsPaid(invoice) {
-    const confirmed = window.confirm(
-      `Mark ${invoice.invoice_number} as paid?`
-    );
+  function openPaidDatePicker(invoice) {
+    const existingPaidDate = invoice.paid_at
+      ? String(invoice.paid_at).slice(0, 10)
+      : getToday();
 
-    if (!confirmed) return;
+    setInvoiceToMarkPaid(invoice);
+    setPaidDate(existingPaidDate);
+    setMessage("");
+  }
 
+  function closePaidDatePicker() {
+    if (savingPaidDate) return;
+
+    setInvoiceToMarkPaid(null);
+    setPaidDate(getToday());
+  }
+
+  async function savePaidDate() {
+    if (!invoiceToMarkPaid || !paidDate) {
+      setMessage("Choose the date the invoice was paid.");
+      return;
+    }
+
+    setSavingPaidDate(true);
     setMessage("");
 
     try {
+      const paidAt = `${paidDate}T12:00:00.000Z`;
+
       const { error } = await supabase
         .from("invoices")
         .update({
           status: "paid",
-          amount_paid:
-            Number(invoice.total),
-
+          amount_paid: Number(invoiceToMarkPaid.total),
           balance_due: 0,
-          paid_at:
-            new Date().toISOString(),
+          paid_at: paidAt,
         })
-        .eq("id", invoice.id)
-        .eq(
-          "business_id",
-          business.id
-        );
+        .eq("id", invoiceToMarkPaid.id)
+        .eq("business_id", business.id);
 
       if (error) {
         throw error;
       }
 
+      const invoiceNumber = invoiceToMarkPaid.invoice_number;
+
+      setInvoiceToMarkPaid(null);
+      setPaidDate(getToday());
+
       await loadInvoices(business.id);
 
       setMessage(
-        `${invoice.invoice_number} marked as paid.`
+        `${invoiceNumber} marked as paid on ${formatDate(paidDate)}.`
       );
     } catch (error) {
       console.error(error);
 
       setMessage(
         error?.message ||
-          "Could not update the invoice."
+          "Could not save the invoice payment date."
       );
+    } finally {
+      setSavingPaidDate(false);
     }
   }
 
@@ -1984,7 +2008,7 @@ export default function InvoicesPage() {
                         <button
                           type="button"
                           onClick={() =>
-                            markAsPaid(invoice)
+                            openPaidDatePicker(invoice)
                           }
                           className="font-semibold text-green-600"
                         >
@@ -1993,15 +2017,27 @@ export default function InvoicesPage() {
                       )}
 
                     {currentStatus === "paid" && (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          markAsUnpaid(invoice)
-                        }
-                        className="font-semibold text-amber-600"
-                      >
-                        Mark unpaid
-                      </button>
+                      <>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            openPaidDatePicker(invoice)
+                          }
+                          className="font-semibold text-blue-600"
+                        >
+                          Change paid date
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() =>
+                            markAsUnpaid(invoice)
+                          }
+                          className="font-semibold text-amber-600"
+                        >
+                          Mark unpaid
+                        </button>
+                      </>
                     )}
 
                     {currentStatus !== "cancelled" && (
@@ -2023,6 +2059,68 @@ export default function InvoicesPage() {
           </>
         )}
       </section>
+
+
+      {invoiceToMarkPaid && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl">
+            <h2 className="text-2xl font-bold text-slate-900">
+              Payment date
+            </h2>
+
+            <p className="mt-3 text-slate-600">
+              Choose the date that{" "}
+              <strong>{invoiceToMarkPaid.invoice_number}</strong>{" "}
+              was actually paid.
+            </p>
+
+            <label
+              htmlFor="paid-date"
+              className="mt-6 block text-sm font-semibold text-slate-700"
+            >
+              Date paid
+            </label>
+
+            <input
+              id="paid-date"
+              type="date"
+              value={paidDate}
+              max={getToday()}
+              onChange={(event) => setPaidDate(event.target.value)}
+              disabled={savingPaidDate}
+              className="mt-2 w-full rounded-lg border border-slate-300 px-4 py-3 text-slate-900"
+            />
+
+            <p className="mt-3 text-sm text-slate-500">
+              Today is selected automatically, but you can choose an earlier date.
+            </p>
+
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={closePaidDatePicker}
+                disabled={savingPaidDate}
+                className="rounded-lg border border-slate-300 px-5 py-3 font-semibold disabled:opacity-50"
+              >
+                Cancel
+              </button>
+
+              <button
+                type="button"
+                onClick={savePaidDate}
+                disabled={savingPaidDate || !paidDate}
+                className="rounded-lg bg-green-600 px-5 py-3 font-semibold text-white hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {savingPaidDate
+                  ? "Saving..."
+                  : invoiceToMarkPaid.status === "paid"
+                    ? "Update paid date"
+                    : "Mark as paid"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
 
       {invoiceToDelete && (
