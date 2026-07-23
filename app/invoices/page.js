@@ -379,6 +379,8 @@ export default function InvoicesPage() {
           subtotal,
           vat_total,
           total,
+          internal_amount,
+          agency_commission,
           amount_paid,
           balance_due,
           customer_name,
