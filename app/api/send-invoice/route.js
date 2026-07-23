@@ -4,6 +4,7 @@ import { Resend } from "resend";
 import { renderToBuffer } from "@react-pdf/renderer";
 import InvoicePdf from "../../../components/InvoicePdf";
 import { createInvoicePdfFilename } from "../../../lib/invoiceFileName";
+import { createClient } from "../../../lib/supabase/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -23,6 +24,23 @@ function escapeHtml(value) {
 
 export async function POST(request) {
   try {
+    const supabase = await createClient();
+
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser();
+
+    if (authError || !user) {
+      return NextResponse.json(
+        {
+          error:
+            "You must be signed in to send an invoice.",
+        },
+        { status: 401 }
+      );
+    }
+    
     const apiKey =
       process.env.RESEND_API_KEY;
 

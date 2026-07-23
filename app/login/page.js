@@ -13,23 +13,40 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [checkingSession, setCheckingSession] = useState(true);
 
-  useEffect(() => {
-    async function checkExistingSession() {
+useEffect(() => {
+  let isMounted = true;
+
+  async function checkExistingSession() {
+    try {
       const {
         data: { session },
+        error,
       } = await supabase.auth.getSession();
+
+      if (error) {
+        console.error("Session check error:", error);
+      }
 
       if (session) {
         router.replace("/");
         router.refresh();
         return;
       }
-
-      setCheckingSession(false);
+    } catch (error) {
+      console.error("Session check failed:", error);
+    } finally {
+      if (isMounted) {
+        setCheckingSession(false);
+      }
     }
+  }
 
-    checkExistingSession();
-  }, [router]);
+  checkExistingSession();
+
+  return () => {
+    isMounted = false;
+  };
+}, [router]);
 
   async function handleSubmit(event) {
     event.preventDefault();
