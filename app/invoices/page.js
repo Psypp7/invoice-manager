@@ -826,7 +826,44 @@ export default function InvoicesPage() {
     }
   }
 
-  function openPaidDatePicker(invoice) {
+  async function markAsPaid(invoice) {
+    setMessage("");
+
+    try {
+      const today = getToday();
+      const paidAt = `${today}T12:00:00.000Z`;
+
+      const { error } = await supabase
+        .from("invoices")
+        .update({
+          status: "paid",
+          amount_paid: Number(invoice.total),
+          balance_due: 0,
+          paid_at: paidAt,
+        })
+        .eq("id", invoice.id)
+        .eq("business_id", business.id);
+
+      if (error) {
+        throw error;
+      }
+
+      await loadInvoices(business.id);
+
+      setMessage(
+        `${invoice.invoice_number} marked as paid on ${formatDate(today)}.`
+      );
+    } catch (error) {
+      console.error(error);
+
+      setMessage(
+        error?.message ||
+          "Could not mark the invoice as paid."
+      );
+    }
+  }
+
+  function markAsPaid(invoice) {
     const existingPaidDate = invoice.paid_at
       ? String(invoice.paid_at).slice(0, 10)
       : getToday();
@@ -1722,9 +1759,22 @@ export default function InvoicesPage() {
                         </td>
 
                         <td className="hidden px-3 py-4 xl:table-cell xl:px-4">
-                          <div className="font-medium">
-                            {paymentTimingText(invoice)}
-                          </div>
+                          {invoice.status === "paid" ? (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                openPaidDatePicker(invoice)
+                              }
+                              className="font-medium text-green-700 underline decoration-dotted underline-offset-4 hover:text-green-800"
+                              title="Change the payment date"
+                            >
+                              {paymentTimingText(invoice)}
+                            </button>
+                          ) : (
+                            <div className="font-medium">
+                              {paymentTimingText(invoice)}
+                            </div>
+                          )}
 
                           {invoice.due_date &&
                             invoice.status !== "paid" &&
@@ -1918,7 +1968,20 @@ export default function InvoicesPage() {
                         Payment
                       </dt>
                       <dd className="mt-1 font-medium">
-                        {paymentTimingText(invoice)}
+                        {invoice.status === "paid" ? (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              openPaidDatePicker(invoice)
+                            }
+                            className="text-green-700 underline decoration-dotted underline-offset-4"
+                            title="Change the payment date"
+                          >
+                            {paymentTimingText(invoice)}
+                          </button>
+                        ) : (
+                          paymentTimingText(invoice)
+                        )}
                       </dd>
                     </div>
 
@@ -2008,7 +2071,7 @@ export default function InvoicesPage() {
                         <button
                           type="button"
                           onClick={() =>
-                            openPaidDatePicker(invoice)
+                            markAsPaid(invoice)
                           }
                           className="font-semibold text-green-600"
                         >
@@ -2017,27 +2080,15 @@ export default function InvoicesPage() {
                       )}
 
                     {currentStatus === "paid" && (
-                      <>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            openPaidDatePicker(invoice)
-                          }
-                          className="font-semibold text-blue-600"
-                        >
-                          Change paid date
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() =>
-                            markAsUnpaid(invoice)
-                          }
-                          className="font-semibold text-amber-600"
-                        >
-                          Mark unpaid
-                        </button>
-                      </>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          markAsUnpaid(invoice)
+                        }
+                        className="font-semibold text-amber-600"
+                      >
+                        Mark unpaid
+                      </button>
                     )}
 
                     {currentStatus !== "cancelled" && (
