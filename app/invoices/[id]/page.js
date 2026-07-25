@@ -8,6 +8,7 @@ import {
 } from "@react-pdf/renderer";
 import InvoicePdf from "../../../components/InvoicePdf";
 import { supabase } from "../../../lib/supabase";
+import { createInvoicePdfFilename } from "../../../lib/invoiceFileName";
 
 export default function InvoiceDocumentPage() {
   const params = useParams();
@@ -138,7 +139,7 @@ export default function InvoiceDocumentPage() {
     );
   }
 
-  const fileName = `${invoice.invoice_number}.pdf`;
+  const fileName = createInvoicePdfFilename(invoice);
 
   return (
     <>
