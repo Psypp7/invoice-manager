@@ -379,6 +379,7 @@ export default function InvoicesPage() {
           issue_date,
           due_date,
           paid_at,
+          sent_at,
           status,
           subtotal,
           vat_total,
@@ -823,6 +824,72 @@ export default function InvoicesPage() {
       );
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function markAsSent(invoice) {
+    setMessage("");
+
+    try {
+      const sentAt = new Date().toISOString();
+
+      const { error } = await supabase
+        .from("invoices")
+        .update({
+          sent_at: sentAt,
+        })
+        .eq("id", invoice.id)
+        .eq("business_id", business.id);
+
+      if (error) {
+        throw error;
+      }
+
+      await loadInvoices(business.id);
+
+      setMessage(
+        `${invoice.invoice_number} marked as sent on ${formatDate(
+          sentAt.slice(0, 10)
+        )}.`
+      );
+    } catch (error) {
+      console.error(error);
+
+      setMessage(
+        error?.message ||
+          "Could not mark the invoice as sent."
+      );
+    }
+  }
+
+  async function markAsUnsent(invoice) {
+    setMessage("");
+
+    try {
+      const { error } = await supabase
+        .from("invoices")
+        .update({
+          sent_at: null,
+        })
+        .eq("id", invoice.id)
+        .eq("business_id", business.id);
+
+      if (error) {
+        throw error;
+      }
+
+      await loadInvoices(business.id);
+
+      setMessage(
+        `${invoice.invoice_number} is now marked as not sent.`
+      );
+    } catch (error) {
+      console.error(error);
+
+      setMessage(
+        error?.message ||
+          "Could not remove the sent status."
+      );
     }
   }
 
@@ -1839,6 +1906,37 @@ export default function InvoicesPage() {
                               Email
                             </Link>
 
+                            {!invoice.sent_at ? (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  markAsSent(invoice)
+                                }
+                                className="font-semibold text-cyan-700 hover:text-cyan-900"
+                              >
+                                Mark sent
+                              </button>
+                            ) : (
+                              <>
+                                <span className="font-semibold text-cyan-700">
+                                  Sent{" "}
+                                  {formatDate(
+                                    String(invoice.sent_at).slice(0, 10)
+                                  )}
+                                </span>
+
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    markAsUnsent(invoice)
+                                  }
+                                  className="font-semibold text-slate-500 hover:text-slate-700"
+                                >
+                                  Mark unsent
+                                </button>
+                              </>
+                            )}
+
                             <Link
                               href={`/invoices/${invoice.id}/edit`}
                               className="font-semibold text-amber-600 hover:text-amber-800"
@@ -2048,6 +2146,37 @@ export default function InvoicesPage() {
                     >
                       Email
                     </Link>
+
+                    {!invoice.sent_at ? (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          markAsSent(invoice)
+                        }
+                        className="font-semibold text-cyan-700"
+                      >
+                        Mark sent
+                      </button>
+                    ) : (
+                      <>
+                        <span className="font-semibold text-cyan-700">
+                          Sent{" "}
+                          {formatDate(
+                            String(invoice.sent_at).slice(0, 10)
+                          )}
+                        </span>
+
+                        <button
+                          type="button"
+                          onClick={() =>
+                            markAsUnsent(invoice)
+                          }
+                          className="font-semibold text-slate-500"
+                        >
+                          Mark unsent
+                        </button>
+                      </>
+                    )}
 
                     <Link
                       href={`/invoices/${invoice.id}/edit`}
