@@ -1751,6 +1751,10 @@ export default function InvoicesPage() {
                   </th>
 
                   <th className="w-[9%] px-2 py-4 xl:px-3">
+                    Sent
+                  </th>
+
+                  <th className="w-[9%] px-2 py-4 xl:px-3">
                     Invoice total
                   </th>
 
@@ -1852,6 +1856,39 @@ export default function InvoicesPage() {
                             )}
                         </td>
 
+                        <td className="px-2 py-4 xl:px-3">
+                          {!invoice.sent_at ? (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                markAsSent(invoice)
+                              }
+                              className="font-semibold text-cyan-700 hover:text-cyan-900"
+                            >
+                              Mark sent
+                            </button>
+                          ) : (
+                            <div className="space-y-1">
+                              <div className="font-semibold text-cyan-700">
+                                Sent{" "}
+                                {formatDate(
+                                  String(invoice.sent_at).slice(0, 10)
+                                )}
+                              </div>
+
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  markAsUnsent(invoice)
+                                }
+                                className="text-sm font-semibold text-slate-500 hover:text-slate-700"
+                              >
+                                Mark unsent
+                              </button>
+                            </div>
+                          )}
+                        </td>
+
                         <td className="px-3 py-4 font-semibold xl:px-4">
                           {formatMoney(invoice.total)}
                         </td>
@@ -1905,37 +1942,6 @@ export default function InvoicesPage() {
                             >
                               Email
                             </Link>
-
-                            {!invoice.sent_at ? (
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  markAsSent(invoice)
-                                }
-                                className="font-semibold text-cyan-700 hover:text-cyan-900"
-                              >
-                                Mark sent
-                              </button>
-                            ) : (
-                              <>
-                                <span className="font-semibold text-cyan-700">
-                                  Sent{" "}
-                                  {formatDate(
-                                    String(invoice.sent_at).slice(0, 10)
-                                  )}
-                                </span>
-
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    markAsUnsent(invoice)
-                                  }
-                                  className="font-semibold text-slate-500 hover:text-slate-700"
-                                >
-                                  Mark unsent
-                                </button>
-                              </>
-                            )}
 
                             <Link
                               href={`/invoices/${invoice.id}/edit`}
@@ -2085,6 +2091,44 @@ export default function InvoicesPage() {
 
                     <div>
                       <dt className="text-slate-500">
+                        Sent
+                      </dt>
+                      <dd className="mt-1">
+                        {!invoice.sent_at ? (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              markAsSent(invoice)
+                            }
+                            className="font-semibold text-cyan-700"
+                          >
+                            Mark sent
+                          </button>
+                        ) : (
+                          <div className="space-y-1">
+                            <div className="font-semibold text-cyan-700">
+                              Sent{" "}
+                              {formatDate(
+                                String(invoice.sent_at).slice(0, 10)
+                              )}
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() =>
+                                markAsUnsent(invoice)
+                              }
+                              className="text-sm font-semibold text-slate-500"
+                            >
+                              Mark unsent
+                            </button>
+                          </div>
+                        )}
+                      </dd>
+                    </div>
+
+                    <div>
+                      <dt className="text-slate-500">
                         Invoice total
                       </dt>
                       <dd className="mt-1 font-bold">
@@ -2146,37 +2190,6 @@ export default function InvoicesPage() {
                     >
                       Email
                     </Link>
-
-                    {!invoice.sent_at ? (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          markAsSent(invoice)
-                        }
-                        className="font-semibold text-cyan-700"
-                      >
-                        Mark sent
-                      </button>
-                    ) : (
-                      <>
-                        <span className="font-semibold text-cyan-700">
-                          Sent{" "}
-                          {formatDate(
-                            String(invoice.sent_at).slice(0, 10)
-                          )}
-                        </span>
-
-                        <button
-                          type="button"
-                          onClick={() =>
-                            markAsUnsent(invoice)
-                          }
-                          className="font-semibold text-slate-500"
-                        >
-                          Mark unsent
-                        </button>
-                      </>
-                    )}
 
                     <Link
                       href={`/invoices/${invoice.id}/edit`}
