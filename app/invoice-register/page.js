@@ -170,14 +170,33 @@ export default function InvoiceRegisterPage() {
         throw error;
       }
 
-      const prepared = (data || []).map((invoice) => ({
-        ...invoice,
-        invoice_items: [...(invoice.invoice_items || [])].sort(
-          (a, b) =>
-            Number(a.sort_order || 0) -
-            Number(b.sort_order || 0)
-        ),
-      }));
+      const prepared = (data || [])
+        .map((invoice) => ({
+          ...invoice,
+          invoice_items: [...(invoice.invoice_items || [])].sort(
+            (a, b) =>
+              Number(a.sort_order || 0) -
+              Number(b.sort_order || 0)
+          ),
+        }))
+        .sort((first, second) => {
+          const dateDifference =
+            new Date(second.issue_date).getTime() -
+            new Date(first.issue_date).getTime();
+
+          if (dateDifference !== 0) {
+            return dateDifference;
+          }
+
+          const firstNumber = Number(
+            String(first.invoice_number || "").replace(/\D/g, "")
+          );
+          const secondNumber = Number(
+            String(second.invoice_number || "").replace(/\D/g, "")
+          );
+
+          return secondNumber - firstNumber;
+        });
 
       setInvoices(prepared);
     } catch (error) {
@@ -316,7 +335,7 @@ export default function InvoiceRegisterPage() {
               setSearch(event.target.value)
             }
             placeholder="Search invoice, client or property..."
-            className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            className="rounded-lg border border-slate-300 px-2 py-2 text-sm"
           />
 
           <select
@@ -324,7 +343,7 @@ export default function InvoiceRegisterPage() {
             onChange={(event) =>
               setPaymentFilter(event.target.value)
             }
-            className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            className="rounded-lg border border-slate-300 px-2 py-2 text-sm"
           >
             <option value="all">All payment statuses</option>
             <option value="paid">Paid only</option>
@@ -336,7 +355,7 @@ export default function InvoiceRegisterPage() {
             onChange={(event) =>
               setSentFilter(event.target.value)
             }
-            className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            className="rounded-lg border border-slate-300 px-2 py-2 text-sm"
           >
             <option value="all">All sent statuses</option>
             <option value="sent">Sent only</option>
@@ -351,37 +370,34 @@ export default function InvoiceRegisterPage() {
         )}
 
         <div className="overflow-x-auto">
-          <table className="min-w-[1350px] w-full border-collapse text-left text-sm">
+          <table className="w-full table-fixed border-collapse text-left text-sm">
             <thead className="sticky top-0 bg-slate-100 text-xs uppercase tracking-wide text-slate-600">
               <tr>
-                <th className="border-b border-r border-slate-200 px-3 py-2">
+                <th className="w-[7%] border-b border-r border-slate-200 px-2 py-2">
                   Invoice
                 </th>
-                <th className="border-b border-r border-slate-200 px-3 py-2">
+                <th className="w-[9%] border-b border-r border-slate-200 px-2 py-2">
                   Issued
                 </th>
-                <th className="border-b border-r border-slate-200 px-3 py-2">
+                <th className="w-[16%] border-b border-r border-slate-200 px-2 py-2">
                   Client
                 </th>
-                <th className="border-b border-r border-slate-200 px-3 py-2">
-                  Property
-                </th>
-                <th className="border-b border-r border-slate-200 px-3 py-2">
+                <th className="w-[30%] border-b border-r border-slate-200 px-2 py-2">
                   Description
                 </th>
-                <th className="border-b border-r border-slate-200 px-3 py-2">
+                <th className="w-[12%] border-b border-r border-slate-200 px-2 py-2">
                   Payment
                 </th>
-                <th className="border-b border-r border-slate-200 px-3 py-2">
+                <th className="w-[11%] border-b border-r border-slate-200 px-2 py-2">
                   Sent
                 </th>
-                <th className="border-b border-r border-slate-200 px-3 py-2 text-right">
+                <th className="w-[9%] border-b border-r border-slate-200 px-2 py-2 text-right">
                   Invoice total
                 </th>
-                <th className="border-b border-r border-slate-200 px-3 py-2 text-right">
+                <th className="w-[9%] border-b border-r border-slate-200 px-2 py-2 text-right">
                   My money
                 </th>
-                <th className="border-b border-slate-200 px-3 py-2 text-right">
+                <th className="w-[9%] border-b border-slate-200 px-2 py-2 text-right">
                   Other company
                 </th>
               </tr>
@@ -391,7 +407,7 @@ export default function InvoiceRegisterPage() {
               {loading ? (
                 <tr>
                   <td
-                    colSpan="10"
+                    colSpan="9"
                     className="px-4 py-10 text-center text-slate-500"
                   >
                     Loading invoice register...
@@ -400,7 +416,7 @@ export default function InvoiceRegisterPage() {
               ) : filteredInvoices.length === 0 ? (
                 <tr>
                   <td
-                    colSpan="10"
+                    colSpan="9"
                     className="px-4 py-10 text-center text-slate-500"
                   >
                     No invoices match the selected filters.
@@ -429,29 +445,23 @@ export default function InvoiceRegisterPage() {
                           : "bg-slate-50/70"
                       }
                     >
-                      <td className="whitespace-nowrap border-b border-r border-slate-200 px-3 py-2 font-bold">
+                      <td className="whitespace-nowrap border-b border-r border-slate-200 px-2 py-2 font-bold">
                         {invoice.invoice_number}
                       </td>
 
-                      <td className="whitespace-nowrap border-b border-r border-slate-200 px-3 py-2">
+                      <td className="whitespace-nowrap border-b border-r border-slate-200 px-2 py-2">
                         {formatDate(invoice.issue_date)}
                       </td>
 
-                      <td className="max-w-[190px] border-b border-r border-slate-200 px-3 py-2 font-medium">
+                      <td className="border-b border-r border-slate-200 px-2 py-2 font-medium break-words">
                         {getClientName(invoice)}
                       </td>
 
-                      <td className="max-w-[260px] border-b border-r border-slate-200 px-3 py-2">
-                        {getPropertyName(invoice)}
+                      <td className="border-b border-r border-slate-200 px-2 py-2 text-slate-700 break-words">
+                        {getDescription(invoice)}
                       </td>
 
-                      <td className="max-w-[280px] border-b border-r border-slate-200 px-3 py-2 text-slate-600">
-                        <div className="line-clamp-2">
-                          {getDescription(invoice)}
-                        </div>
-                      </td>
-
-                      <td className="whitespace-nowrap border-b border-r border-slate-200 px-3 py-2">
+                      <td className="whitespace-nowrap border-b border-r border-slate-200 px-2 py-2">
                         <span
                           className={`inline-flex rounded px-2 py-1 text-xs font-bold ${paymentClass(
                             invoice
@@ -461,7 +471,7 @@ export default function InvoiceRegisterPage() {
                         </span>
                       </td>
 
-                      <td className="whitespace-nowrap border-b border-r border-slate-200 px-3 py-2">
+                      <td className="whitespace-nowrap border-b border-r border-slate-200 px-2 py-2">
                         <span
                           className={`inline-flex rounded px-2 py-1 text-xs font-bold ${sentClass(
                             invoice
@@ -471,15 +481,15 @@ export default function InvoiceRegisterPage() {
                         </span>
                       </td>
 
-                      <td className="whitespace-nowrap border-b border-r border-slate-200 px-3 py-2 text-right font-bold">
+                      <td className="whitespace-nowrap border-b border-r border-slate-200 px-2 py-2 text-right font-bold">
                         {formatMoney(invoice.total)}
                       </td>
 
-                      <td className="whitespace-nowrap border-b border-r border-slate-200 px-3 py-2 text-right font-bold text-green-700">
+                      <td className="whitespace-nowrap border-b border-r border-slate-200 px-2 py-2 text-right font-bold text-green-700">
                         {formatMoney(myMoney)}
                       </td>
 
-                      <td className="whitespace-nowrap border-b border-slate-200 px-3 py-2 text-right font-bold text-purple-700">
+                      <td className="whitespace-nowrap border-b border-slate-200 px-2 py-2 text-right font-bold text-purple-700">
                         {formatMoney(otherCompany)}
                       </td>
                     </tr>
@@ -492,18 +502,18 @@ export default function InvoiceRegisterPage() {
               <tfoot className="bg-slate-100 font-bold">
                 <tr>
                   <td
-                    colSpan="7"
-                    className="border-t border-r border-slate-300 px-3 py-2 text-right"
+                    colSpan="6"
+                    className="border-t border-r border-slate-300 px-2 py-2 text-right"
                   >
                     Totals
                   </td>
-                  <td className="border-t border-r border-slate-300 px-3 py-2 text-right">
+                  <td className="border-t border-r border-slate-300 px-2 py-2 text-right">
                     {formatMoney(totals.invoiceTotal)}
                   </td>
-                  <td className="border-t border-r border-slate-300 px-3 py-2 text-right text-green-700">
+                  <td className="border-t border-r border-slate-300 px-2 py-2 text-right text-green-700">
                     {formatMoney(totals.myMoney)}
                   </td>
-                  <td className="border-t border-slate-300 px-3 py-2 text-right text-purple-700">
+                  <td className="border-t border-slate-300 px-2 py-2 text-right text-purple-700">
                     {formatMoney(totals.otherCompany)}
                   </td>
                 </tr>
