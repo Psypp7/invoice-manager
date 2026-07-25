@@ -8,6 +8,7 @@ const menuItems = [
   { name: "Dashboard", href: "/" },
   { name: "Jobs", href: "/jobs" },
   { name: "Invoices", href: "/invoices" },
+  { name: "Invoice Register", href: "/invoice-register" },
   { name: "Clients", href: "/clients" },
   { name: "Properties", href: "/properties" },
   { name: "Calendar", href: "/calendar" },
@@ -95,7 +96,7 @@ export default function AppShell({ children }) {
         </nav>
       </aside>
 
-      <main className="flex-1 p-5 md:p-10">
+      <main className="min-w-0 flex-1 p-5 md:p-10">
         {children}
       </main>
     </div>
