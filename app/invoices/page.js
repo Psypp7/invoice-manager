@@ -1390,7 +1390,7 @@ export default function InvoicesPage() {
                 </span>
               </label>
 
-              <p className="mt-1 text-sm text-slate-500">
+              <p className="mt-1 text-xs leading-4 text-slate-500">
                 Leave this unticked when the client has no fixed payment date.
               </p>
 
@@ -1726,51 +1726,51 @@ export default function InvoicesPage() {
           </div>
         ) : (
           <>
-            <div className="hidden w-full max-w-full overflow-x-auto lg:block">
-            <table className="w-full min-w-[1180px] table-fixed text-left">
+            <div className="hidden w-full max-w-full overflow-hidden lg:block">
+            <table className="w-full table-fixed text-left text-sm">
               <thead className="bg-slate-50 text-sm text-slate-500">
                 <tr>
-                  <th className="w-[8%] whitespace-nowrap px-2 py-4 xl:px-3">
+                  <th className="w-[7%] px-1.5 py-3">
                     Invoice
                   </th>
 
-                  <th className="w-[13%] px-2 py-4 xl:px-3">
+                  <th className="w-[11%] px-1.5 py-3">
                     Client
                   </th>
 
-                  <th className="w-[23%] px-2 py-4 xl:px-3">
+                  <th className="w-[21%] px-1.5 py-3">
                     Property
                   </th>
 
-                  <th className="w-[8%] px-2 py-4 xl:px-3">
+                  <th className="w-[7%] px-1.5 py-3">
                     Issued
                   </th>
 
-                  <th className="hidden w-[10%] px-2 py-4 xl:table-cell xl:px-3">
+                  <th className="hidden w-[9%] px-1.5 py-3 xl:table-cell">
                     Payment
                   </th>
 
-                  <th className="w-[9%] px-2 py-4 xl:px-3">
+                  <th className="w-[8%] px-1.5 py-3">
                     Sent
                   </th>
 
-                  <th className="w-[9%] px-2 py-4 xl:px-3">
+                  <th className="w-[8%] px-1.5 py-3">
                     Invoice total
                   </th>
 
-                  <th className="w-[9%] px-2 py-4 xl:px-3">
+                  <th className="w-[8%] px-1.5 py-3">
                     My money
                   </th>
 
-                  <th className="w-[9%] px-2 py-4 xl:px-3">
+                  <th className="w-[8%] px-1.5 py-3">
                     Other company
                   </th>
 
-                  <th className="w-[8%] px-2 py-4 xl:px-3">
+                  <th className="w-[6%] px-1.5 py-3">
                     Status
                   </th>
 
-                  <th className="w-[12%] px-2 py-4 xl:px-3">
+                  <th className="w-[7%] px-1.5 py-3">
                     Actions
                   </th>
                 </tr>
@@ -1795,12 +1795,12 @@ export default function InvoicesPage() {
                           }
                         </td>
 
-                        <td className="break-words px-3 py-4 xl:px-4">
+                        <td className="break-words px-1.5 py-3 text-sm leading-5">
                           {invoice.customer_name ||
                             "—"}
                         </td>
 
-                        <td className="min-w-0 break-words px-3 py-4 xl:px-4">
+                        <td className="min-w-0 break-words px-1.5 py-3 text-sm leading-5">
                           {(() => {
                             const property =
                               getPropertyDisplay(
@@ -1809,11 +1809,11 @@ export default function InvoicesPage() {
 
                             return (
                               <div>
-                                <p className="break-words font-semibold leading-snug text-slate-900">
+                                <p className="break-words font-semibold leading-5 text-slate-900">
                                   {property.name}
                                 </p>
 
-                                <p className="mt-1 text-sm text-slate-500">
+                                <p className="mt-1 text-xs leading-4 text-slate-500">
                                   {
                                     property.reportType
                                   }
@@ -1823,7 +1823,7 @@ export default function InvoicesPage() {
                           })()}
                         </td>
 
-                        <td className="px-3 py-4 xl:px-4">
+                        <td className="px-1.5 py-3">
                           {formatDate(
                             invoice.issue_date
                           )}
@@ -1856,7 +1856,7 @@ export default function InvoicesPage() {
                             )}
                         </td>
 
-                        <td className="px-2 py-4 xl:px-3">
+                        <td className="px-1.5 py-3">
                           {!invoice.sent_at ? (
                             <button
                               type="button"
@@ -1914,9 +1914,9 @@ export default function InvoicesPage() {
                           )}
                         </td>
 
-                        <td className="px-3 py-4 xl:px-4">
+                        <td className="px-1.5 py-3">
                           <span
-                            className={`rounded-full px-3 py-1 text-xs font-semibold capitalize ${statusClasses(
+                            className={`inline-block rounded-full px-2 py-1 text-[11px] font-semibold capitalize leading-none ${statusClasses(
                               currentStatus
                             )}`}
                           >
@@ -1927,25 +1927,25 @@ export default function InvoicesPage() {
                           </span>
                         </td>
 
-                        <td className="px-3 py-4 xl:px-4">
-                          <div className="flex flex-col items-start gap-2 xl:flex-row xl:flex-wrap xl:gap-x-3 xl:gap-y-2">
+                        <td className="px-1.5 py-3">
+                          <div className="grid grid-cols-1 gap-1 text-xs leading-4">
                             <Link
                               href={`/invoices/${invoice.id}`}
-                              className="font-semibold text-blue-600 hover:text-blue-800"
+                              className="break-words font-semibold text-blue-600 hover:text-blue-800"
                             >
                               PDF
                             </Link>
 
                             <Link
                               href={`/invoices/${invoice.id}/email`}
-                              className="font-semibold text-purple-600 hover:text-purple-800"
+                              className="break-words font-semibold text-purple-600 hover:text-purple-800"
                             >
                               Email
                             </Link>
 
                             <Link
                               href={`/invoices/${invoice.id}/edit`}
-                              className="font-semibold text-amber-600 hover:text-amber-800"
+                              className="break-words font-semibold text-amber-600 hover:text-amber-800"
                             >
                               Edit
                             </Link>
@@ -1953,7 +1953,7 @@ export default function InvoicesPage() {
                             <button
                               type="button"
                               onClick={() => openDeleteInvoice(invoice)}
-                              className="font-semibold text-red-600 hover:text-red-800"
+                              className="break-words font-semibold text-red-600 hover:text-red-800"
                             >
                               Delete
                             </button>
@@ -1969,7 +1969,7 @@ export default function InvoicesPage() {
                                       invoice
                                     )
                                   }
-                                  className="font-semibold text-green-600 hover:text-green-800"
+                                  className="break-words font-semibold text-green-600 hover:text-green-800"
                                 >
                                   Mark paid
                                 </button>
@@ -1984,7 +1984,7 @@ export default function InvoicesPage() {
                                     invoice
                                   )
                                 }
-                                className="font-semibold text-amber-600 hover:text-amber-800"
+                                className="break-words font-semibold text-amber-600 hover:text-amber-800"
                               >
                                 Mark unpaid
                               </button>
@@ -1999,7 +1999,7 @@ export default function InvoicesPage() {
                                     invoice
                                   )
                                 }
-                                className="font-semibold text-red-600 hover:text-red-800"
+                                className="break-words font-semibold text-red-600 hover:text-red-800"
                               >
                                 Cancel
                               </button>
@@ -2048,11 +2048,11 @@ export default function InvoicesPage() {
                   </div>
 
                   <div className="mt-4 rounded-lg bg-slate-50 p-3">
-                    <p className="break-words font-semibold leading-snug text-slate-900">
+                    <p className="break-words font-semibold leading-5 text-slate-900">
                       {property.name}
                     </p>
 
-                    <p className="mt-1 text-sm text-slate-500">
+                    <p className="mt-1 text-xs leading-4 text-slate-500">
                       {property.reportType}
                     </p>
                   </div>
