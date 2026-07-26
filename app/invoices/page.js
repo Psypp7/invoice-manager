@@ -238,6 +238,10 @@ export default function InvoicesPage() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
 
+  const [selectedInvoiceIds, setSelectedInvoiceIds] = useState([]);
+  const [bulkDownloading, setBulkDownloading] = useState(false);
+  const [bulkSending, setBulkSending] = useState(false);
+
   const [invoiceToMarkPaid, setInvoiceToMarkPaid] = useState(null);
   const [paidDate, setPaidDate] = useState(getToday());
   const [savingPaidDate, setSavingPaidDate] = useState(false);
@@ -1153,6 +1157,199 @@ export default function InvoicesPage() {
     }
   }
 
+  function isInvoiceSelected(invoiceId) {
+    return selectedInvoiceIds.includes(invoiceId);
+  }
+
+  function toggleInvoiceSelection(invoiceId) {
+    setSelectedInvoiceIds((current) =>
+      current.includes(invoiceId)
+        ? current.filter((id) => id !== invoiceId)
+        : [...current, invoiceId]
+    );
+  }
+
+  function toggleAllVisibleInvoices() {
+    const visibleIds = filteredInvoices.map(
+      (invoice) => invoice.id
+    );
+
+    const allVisibleSelected =
+      visibleIds.length > 0 &&
+      visibleIds.every((id) =>
+        selectedInvoiceIds.includes(id)
+      );
+
+    setSelectedInvoiceIds((current) => {
+      if (allVisibleSelected) {
+        return current.filter(
+          (id) => !visibleIds.includes(id)
+        );
+      }
+
+      return Array.from(
+        new Set([...current, ...visibleIds])
+      );
+    });
+  }
+
+  function clearInvoiceSelection() {
+    setSelectedInvoiceIds([]);
+  }
+
+  async function bulkDownloadInvoices() {
+    if (selectedInvoiceIds.length === 0) {
+      setMessage(
+        "Select at least one invoice to download."
+      );
+      return;
+    }
+
+    setBulkDownloading(true);
+    setMessage("");
+
+    try {
+      const response = await fetch(
+        "/api/download-invoices",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            invoiceIds: selectedInvoiceIds,
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        const result = await response
+          .json()
+          .catch(() => null);
+
+        throw new Error(
+          result?.error ||
+            "The selected invoices could not be downloaded."
+        );
+      }
+
+      const blob = await response.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+
+      link.href = objectUrl;
+      link.download =
+        `selected-invoices-${getToday()}.zip`;
+
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+
+      URL.revokeObjectURL(objectUrl);
+
+      setMessage(
+        `${selectedInvoiceIds.length} selected invoice${
+          selectedInvoiceIds.length === 1 ? "" : "s"
+        } downloaded.`
+      );
+    } catch (error) {
+      console.error(error);
+
+      setMessage(
+        error?.message ||
+          "The selected invoices could not be downloaded."
+      );
+    } finally {
+      setBulkDownloading(false);
+    }
+  }
+
+  async function bulkSendInvoices() {
+    if (selectedInvoiceIds.length === 0) {
+      setMessage(
+        "Select at least one invoice to email."
+      );
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Email ${selectedInvoiceIds.length} selected invoice${
+        selectedInvoiceIds.length === 1 ? "" : "s"
+      } to the saved client email addresses?`
+    );
+
+    if (!confirmed) return;
+
+    setBulkSending(true);
+    setMessage("");
+
+    try {
+      const response = await fetch(
+        "/api/send-invoices",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            invoiceIds: selectedInvoiceIds,
+          }),
+        }
+      );
+
+      const result = await response
+        .json()
+        .catch(() => null);
+
+      if (!response.ok) {
+        throw new Error(
+          result?.error ||
+            "The selected invoices could not be emailed."
+        );
+      }
+
+      await loadInvoices(business.id);
+
+      const sentCount = Number(
+        result?.sentCount || 0
+      );
+
+      const failedCount = Number(
+        result?.failedCount || 0
+      );
+
+      setMessage(
+        failedCount > 0
+          ? `${sentCount} invoice${
+              sentCount === 1 ? "" : "s"
+            } sent. ${failedCount} could not be sent. ${(
+              result?.failures || []
+            )
+              .map(
+                (failure) =>
+                  `${failure.invoiceNumber}: ${failure.error}`
+              )
+              .join(" | ")}`
+          : `${sentCount} selected invoice${
+              sentCount === 1 ? "" : "s"
+            } emailed successfully.`
+      );
+
+      if (failedCount === 0) {
+        clearInvoiceSelection();
+      }
+    } catch (error) {
+      console.error(error);
+
+      setMessage(
+        error?.message ||
+          "The selected invoices could not be emailed."
+      );
+    } finally {
+      setBulkSending(false);
+    }
+  }
+
   const filteredInvoices = useMemo(() => {
     const searchText =
       search.trim().toLowerCase();
@@ -1718,6 +1915,59 @@ export default function InvoicesPage() {
           </select>
         </div>
 
+        <div className="flex flex-wrap items-center gap-3 border-b border-slate-200 bg-slate-50 px-4 py-3 sm:px-5">
+          <span className="text-sm font-semibold text-slate-700">
+            {selectedInvoiceIds.length} selected
+          </span>
+
+          <button
+            type="button"
+            onClick={bulkDownloadInvoices}
+            disabled={
+              selectedInvoiceIds.length === 0 ||
+              bulkDownloading ||
+              bulkSending
+            }
+            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {bulkDownloading
+              ? "Preparing ZIP..."
+              : "Download selected"}
+          </button>
+
+          <button
+            type="button"
+            onClick={bulkSendInvoices}
+            disabled={
+              selectedInvoiceIds.length === 0 ||
+              bulkDownloading ||
+              bulkSending
+            }
+            className="rounded-lg bg-purple-600 px-4 py-2 text-sm font-semibold text-white hover:bg-purple-700 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {bulkSending
+              ? "Sending..."
+              : "Email selected"}
+          </button>
+
+          {selectedInvoiceIds.length > 0 && (
+            <button
+              type="button"
+              onClick={clearInvoiceSelection}
+              disabled={
+                bulkDownloading || bulkSending
+              }
+              className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-white disabled:opacity-40"
+            >
+              Clear selection
+            </button>
+          )}
+
+          <p className="text-xs text-slate-500">
+            Bulk email uses each invoice&apos;s saved client email address.
+          </p>
+        </div>
+
         {filteredInvoices.length === 0 ? (
           <div className="p-10 text-center text-slate-500">
             No invoices found. Press
@@ -1730,15 +1980,30 @@ export default function InvoicesPage() {
             <table className="w-full table-fixed text-left text-sm">
               <thead className="bg-slate-50 text-sm text-slate-500">
                 <tr>
+                  <th className="w-[4%] px-1.5 py-3 text-center">
+                    <input
+                      type="checkbox"
+                      aria-label="Select all visible invoices"
+                      checked={
+                        filteredInvoices.length > 0 &&
+                        filteredInvoices.every((invoice) =>
+                          selectedInvoiceIds.includes(invoice.id)
+                        )
+                      }
+                      onChange={toggleAllVisibleInvoices}
+                      className="h-4 w-4 cursor-pointer rounded border-slate-300"
+                    />
+                  </th>
+
                   <th className="w-[7%] px-1.5 py-3">
                     Invoice
                   </th>
 
-                  <th className="w-[11%] px-1.5 py-3">
+                  <th className="w-[10%] px-1.5 py-3">
                     Client
                   </th>
 
-                  <th className="w-[21%] px-1.5 py-3">
+                  <th className="w-[18%] px-1.5 py-3">
                     Property
                   </th>
 
@@ -1789,6 +2054,18 @@ export default function InvoicesPage() {
                         key={invoice.id}
                         className="border-t border-slate-100"
                       >
+                        <td className="px-1.5 py-3 text-center align-top">
+                          <input
+                            type="checkbox"
+                            aria-label={`Select ${invoice.invoice_number}`}
+                            checked={isInvoiceSelected(invoice.id)}
+                            onChange={() =>
+                              toggleInvoiceSelection(invoice.id)
+                            }
+                            className="mt-1 h-4 w-4 cursor-pointer rounded border-slate-300"
+                          />
+                        </td>
+
                         <td className="whitespace-nowrap px-3 py-4 font-bold xl:px-4">
                           {
                             invoice.invoice_number
@@ -2028,7 +2305,18 @@ export default function InvoicesPage() {
                   className="p-4 sm:p-5"
                 >
                   <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div className="min-w-0">
+                    <div className="flex min-w-0 items-start gap-3">
+                      <input
+                        type="checkbox"
+                        aria-label={`Select ${invoice.invoice_number}`}
+                        checked={isInvoiceSelected(invoice.id)}
+                        onChange={() =>
+                          toggleInvoiceSelection(invoice.id)
+                        }
+                        className="mt-1 h-4 w-4 shrink-0 cursor-pointer rounded border-slate-300"
+                      />
+
+                      <div className="min-w-0">
                       <p className="whitespace-nowrap text-lg font-bold">
                         {invoice.invoice_number}
                       </p>
@@ -2036,6 +2324,7 @@ export default function InvoicesPage() {
                       <p className="mt-1 break-words font-medium text-slate-800">
                         {invoice.customer_name || "—"}
                       </p>
+                      </div>
                     </div>
 
                     <span
