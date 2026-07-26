@@ -2,6 +2,7 @@ import React from "react";
 import { NextResponse } from "next/server";
 import { Resend } from "resend";
 import { renderToBuffer } from "@react-pdf/renderer";
+
 import InvoicePdf from "../../../components/InvoicePdf";
 import { createInvoicePdfFilename } from "../../../lib/invoiceFileName";
 import { createClient } from "../../../lib/supabase/server";
@@ -22,6 +23,10 @@ function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
+function isValidEmail(value) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanText(value));
+}
+
 export async function POST(request) {
   try {
     const supabase = await createClient();
@@ -34,21 +39,31 @@ export async function POST(request) {
     if (authError || !user) {
       return NextResponse.json(
         {
-          error:
-            "You must be signed in to send an invoice.",
+          error: "You must be signed in to send an invoice.",
         },
         { status: 401 }
       );
     }
-    
-    const apiKey =
-      process.env.RESEND_API_KEY;
+
+    const apiKey = cleanText(process.env.RESEND_API_KEY);
+    const fromAddress = cleanText(process.env.RESEND_FROM_EMAIL);
+    const replyTo = cleanText(process.env.RESEND_REPLY_TO);
 
     if (!apiKey) {
       return NextResponse.json(
         {
           error:
             "RESEND_API_KEY is missing from the environment variables.",
+        },
+        { status: 500 }
+      );
+    }
+
+    if (!fromAddress) {
+      return NextResponse.json(
+        {
+          error:
+            "RESEND_FROM_EMAIL is missing from the environment variables.",
         },
         { status: 500 }
       );
@@ -67,8 +82,16 @@ export async function POST(request) {
     if (!recipient) {
       return NextResponse.json(
         {
-          error:
-            "A recipient email address is required.",
+          error: "A recipient email address is required.",
+        },
+        { status: 400 }
+      );
+    }
+
+    if (!isValidEmail(recipient)) {
+      return NextResponse.json(
+        {
+          error: "Enter a valid recipient email address.",
         },
         { status: 400 }
       );
@@ -85,8 +108,7 @@ export async function POST(request) {
     }
 
     const invoiceNumber =
-      cleanText(invoice.invoice_number) ||
-      "Invoice";
+      cleanText(invoice.invoice_number) || "Invoice";
 
     const attachmentFilename =
       createInvoicePdfFilename(invoice);
@@ -99,69 +121,47 @@ export async function POST(request) {
       cleanText(body?.message) ||
       `Please find ${invoiceNumber} attached.`;
 
-    const fromAddress =
-      cleanText(
-        process.env.RESEND_FROM_EMAIL
-      ) ||
-      "Right Inventories London <onboarding@resend.dev>";
+    const pdfDocument = React.createElement(InvoicePdf, {
+      invoice,
+      business,
+    });
 
-    const replyTo =
-      cleanText(
-        process.env.RESEND_REPLY_TO
-      ) || undefined;
+    const pdfBuffer = await renderToBuffer(pdfDocument);
 
-    const pdfDocument =
-      React.createElement(
-        InvoicePdf,
+    const resend = new Resend(apiKey);
+
+    const emailPayload = {
+      from: fromAddress,
+      to: [recipient],
+      subject,
+      html: `
+        <div style="font-family: Arial, sans-serif; color: #222; line-height: 1.5;">
+          <p>
+            ${escapeHtml(message).replaceAll("\n", "<br />")}
+          </p>
+
+          <p>
+            Kind regards,<br />
+            Right Inventories London Ltd
+          </p>
+        </div>
+      `,
+      attachments: [
         {
-          invoice,
-          business,
-        }
-      );
+          filename: attachmentFilename,
+          content: pdfBuffer,
+        },
+      ],
+    };
 
-    const pdfBuffer =
-      await renderToBuffer(
-        pdfDocument
-      );
+    if (replyTo) {
+      emailPayload.replyTo = replyTo;
+    }
 
-    const resend =
-      new Resend(apiKey);
-
-    const { data, error } =
-      await resend.emails.send({
-        from: fromAddress,
-        to: [recipient],
-        subject,
-        html: `
-          <div style="font-family: Arial, sans-serif; color: #222; line-height: 1.5;">
-            <p>${escapeHtml(message).replaceAll(
-              "\n",
-              "<br />"
-            )}</p>
-
-            <p>
-              Kind regards,<br />
-              Right Inventories London Ltd
-            </p>
-          </div>
-        `,
-        ...(replyTo
-          ? { replyTo }
-          : {}),
-        attachments: [
-          {
-            filename:
-              attachmentFilename,
-            content: pdfBuffer,
-          },
-        ],
-      });
+    const { data, error } = await resend.emails.send(emailPayload);
 
     if (error) {
-      console.error(
-        "RESEND SEND-INVOICE ERROR:",
-        error
-      );
+      console.error("RESEND SEND-INVOICE ERROR:", error);
 
       return NextResponse.json(
         {
@@ -177,14 +177,10 @@ export async function POST(request) {
       success: true,
       emailId: data?.id || null,
       attachmentFilename,
-      message:
-        `${invoiceNumber} was emailed successfully as ${attachmentFilename}.`,
+      message: `${invoiceNumber} was emailed successfully as ${attachmentFilename}.`,
     });
   } catch (error) {
-    console.error(
-      "SEND-INVOICE ROUTE ERROR:",
-      error
-    );
+    console.error("SEND-INVOICE ROUTE ERROR:", error);
 
     return NextResponse.json(
       {
