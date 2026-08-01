@@ -2113,57 +2113,65 @@ export default function InvoicesPage() {
                               onClick={() =>
                                 openPaidDatePicker(invoice)
                               }
-                              className="font-medium text-green-700 underline decoration-dotted underline-offset-4 hover:text-green-800"
-                              title="Change the payment date"
+                              title={
+                                invoice.paid_at
+                                  ? `Paid on ${formatDate(
+                                      String(invoice.paid_at).slice(0, 10)
+                                    )}. Click to change the payment date.`
+                                  : "Paid. Click to change the payment date."
+                              }
+                              className="inline-flex items-center gap-1 rounded-full bg-green-100 px-2.5 py-1 text-xs font-bold text-green-800 hover:bg-green-200"
                             >
-                              {paymentTimingText(invoice)}
+                              <span aria-hidden="true">🟢</span>
+                              Paid
                             </button>
+                          ) : invoice.status === "cancelled" ? (
+                            <span className="inline-flex rounded-full bg-slate-200 px-2.5 py-1 text-xs font-bold text-slate-700">
+                              Cancelled
+                            </span>
+                          ) : invoice.status === "draft" ? (
+                            <span className="inline-flex rounded-full bg-slate-200 px-2.5 py-1 text-xs font-bold text-slate-700">
+                              Draft
+                            </span>
                           ) : (
-                            <div className="font-medium">
-                              {paymentTimingText(invoice)}
-                            </div>
+                            <span
+                              title={paymentTimingText(invoice)}
+                              className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2.5 py-1 text-xs font-bold text-red-800"
+                            >
+                              <span aria-hidden="true">🔴</span>
+                              Unpaid
+                            </span>
                           )}
-
-                          {invoice.due_date &&
-                            invoice.status !== "paid" &&
-                            !["cancelled", "draft"].includes(invoice.status) && (
-                              <div className="mt-1 text-xs text-slate-500">
-                                Due {formatDate(invoice.due_date)}
-                              </div>
-                            )}
                         </td>
 
-                        <td className="px-1.5 py-3">
-                          {!invoice.sent_at ? (
-                            <button
-                              type="button"
-                              onClick={() =>
-                                markAsSent(invoice)
-                              }
-                              className="font-semibold text-cyan-700 hover:text-cyan-900"
-                            >
-                              Mark sent
-                            </button>
-                          ) : (
-                            <div className="space-y-1">
-                              <div className="font-semibold text-cyan-700">
-                                Sent{" "}
-                                {formatDate(
-                                  String(invoice.sent_at).slice(0, 10)
-                                )}
-                              </div>
-
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  markAsUnsent(invoice)
-                                }
-                                className="text-sm font-semibold text-slate-500 hover:text-slate-700"
-                              >
-                                Mark unsent
-                              </button>
-                            </div>
-                          )}
+                        <td className="px-1.5 py-3 text-center">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              invoice.sent_at
+                                ? markAsUnsent(invoice)
+                                : markAsSent(invoice)
+                            }
+                            title={
+                              invoice.sent_at
+                                ? `Sent on ${formatDate(
+                                    String(invoice.sent_at).slice(0, 10)
+                                  )}. Click to mark as not sent.`
+                                : "Not sent. Click to mark as sent."
+                            }
+                            aria-label={
+                              invoice.sent_at
+                                ? "Invoice sent. Click to mark as not sent."
+                                : "Invoice not sent. Click to mark as sent."
+                            }
+                            className={`inline-flex h-7 w-7 items-center justify-center rounded-full text-sm font-bold transition ${
+                              invoice.sent_at
+                                ? "bg-green-600 text-white hover:bg-green-700"
+                                : "border-2 border-slate-300 bg-white text-transparent hover:border-slate-400"
+                            }`}
+                          >
+                            {invoice.sent_at ? "✓" : "✓"}
+                          </button>
                         </td>
 
                         <td className="px-3 py-4 font-semibold xl:px-4">
@@ -2360,20 +2368,41 @@ export default function InvoicesPage() {
                       <dt className="text-slate-500">
                         Payment
                       </dt>
-                      <dd className="mt-1 font-medium">
+                      <dd className="mt-1">
                         {invoice.status === "paid" ? (
                           <button
                             type="button"
                             onClick={() =>
                               openPaidDatePicker(invoice)
                             }
-                            className="text-green-700 underline decoration-dotted underline-offset-4"
-                            title="Change the payment date"
+                            title={
+                              invoice.paid_at
+                                ? `Paid on ${formatDate(
+                                    String(invoice.paid_at).slice(0, 10)
+                                  )}. Click to change the payment date.`
+                                : "Paid. Click to change the payment date."
+                            }
+                            className="inline-flex items-center gap-1 rounded-full bg-green-100 px-2.5 py-1 text-xs font-bold text-green-800"
                           >
-                            {paymentTimingText(invoice)}
+                            <span aria-hidden="true">🟢</span>
+                            Paid
                           </button>
+                        ) : invoice.status === "cancelled" ? (
+                          <span className="inline-flex rounded-full bg-slate-200 px-2.5 py-1 text-xs font-bold text-slate-700">
+                            Cancelled
+                          </span>
+                        ) : invoice.status === "draft" ? (
+                          <span className="inline-flex rounded-full bg-slate-200 px-2.5 py-1 text-xs font-bold text-slate-700">
+                            Draft
+                          </span>
                         ) : (
-                          paymentTimingText(invoice)
+                          <span
+                            title={paymentTimingText(invoice)}
+                            className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2.5 py-1 text-xs font-bold text-red-800"
+                          >
+                            <span aria-hidden="true">🔴</span>
+                            Unpaid
+                          </span>
                         )}
                       </dd>
                     </div>
@@ -2383,36 +2412,33 @@ export default function InvoicesPage() {
                         Sent
                       </dt>
                       <dd className="mt-1">
-                        {!invoice.sent_at ? (
-                          <button
-                            type="button"
-                            onClick={() =>
-                              markAsSent(invoice)
-                            }
-                            className="font-semibold text-cyan-700"
-                          >
-                            Mark sent
-                          </button>
-                        ) : (
-                          <div className="space-y-1">
-                            <div className="font-semibold text-cyan-700">
-                              Sent{" "}
-                              {formatDate(
-                                String(invoice.sent_at).slice(0, 10)
-                              )}
-                            </div>
-
-                            <button
-                              type="button"
-                              onClick={() =>
-                                markAsUnsent(invoice)
-                              }
-                              className="text-sm font-semibold text-slate-500"
-                            >
-                              Mark unsent
-                            </button>
-                          </div>
-                        )}
+                        <button
+                          type="button"
+                          onClick={() =>
+                            invoice.sent_at
+                              ? markAsUnsent(invoice)
+                              : markAsSent(invoice)
+                          }
+                          title={
+                            invoice.sent_at
+                              ? `Sent on ${formatDate(
+                                  String(invoice.sent_at).slice(0, 10)
+                                )}. Click to mark as not sent.`
+                              : "Not sent. Click to mark as sent."
+                          }
+                          aria-label={
+                            invoice.sent_at
+                              ? "Invoice sent. Click to mark as not sent."
+                              : "Invoice not sent. Click to mark as sent."
+                          }
+                          className={`inline-flex h-7 w-7 items-center justify-center rounded-full text-sm font-bold ${
+                            invoice.sent_at
+                              ? "bg-green-600 text-white"
+                              : "border-2 border-slate-300 bg-white text-transparent"
+                          }`}
+                        >
+                          ✓
+                        </button>
                       </dd>
                     </div>
 
