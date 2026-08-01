@@ -54,36 +54,26 @@ export default function CompanyAnalyticsPage() {
         throw businessError || new Error("Business not found.");
       }
 
-      const [
-        { data: invoices, error: invoiceError },
-        { data: jobs, error: jobsError },
-      ] = await Promise.all([
-        supabase
-          .from("invoices")
-          .select(`
-            id,
-            client_id,
-            total,
-            balance_due,
-            status,
-            client:clients(id,name,company_name)
-          `)
-          .eq("business_id", business.id)
-          .is("deleted_at", null),
+      const {
+        data: invoices,
+        error: invoiceError,
+      } = await supabase
+        .from("invoices")
+        .select(`
+          id,
+          client_id,
+          total,
+          balance_due,
+          status,
+          client:clients(id,name,company_name)
+        `)
+        .eq("business_id", business.id)
+        .is("deleted_at", null)
+        .neq("status", "cancelled");
 
-        supabase
-          .from("jobs")
-          .select(`
-            id,
-            client_id,
-            status,
-            client:clients(id,name,company_name)
-          `)
-          .eq("business_id", business.id),
-      ]);
-
-      if (invoiceError) throw invoiceError;
-      if (jobsError) throw jobsError;
+      if (invoiceError) {
+        throw invoiceError;
+      }
 
       const map = new Map();
 
@@ -112,6 +102,8 @@ export default function CompanyAnalyticsPage() {
             (invoice.status === "paid" ? 0 : total)
         );
 
+        // One completed invoice represents one completed job.
+        row.jobCount += 1;
         row.invoiceCount += 1;
         row.totalInvoiced += total;
         row.totalOutstanding += Math.max(0, balance);
@@ -126,9 +118,6 @@ export default function CompanyAnalyticsPage() {
         }
       }
 
-      for (const job of jobs || []) {
-        ensure(job.client_id, job.client).jobCount += 1;
-      }
 
       const prepared = Array.from(map.values()).sort(
         (a, b) =>
@@ -184,7 +173,7 @@ export default function CompanyAnalyticsPage() {
             Company Analytics
           </h1>
           <p className="mt-2 text-slate-600">
-            Compare jobs, invoiced amounts, payments received and money still owed by each agent or company.
+            Each non-cancelled invoice counts as one completed job. Compare completed jobs, payments received and money still owed by each agent or company.
           </p>
         </div>
 
@@ -206,8 +195,8 @@ export default function CompanyAnalyticsPage() {
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
         <Card label="Companies" value={totals.companies} />
-        <Card label="Jobs" value={totals.jobs} />
-        <Card label="Invoices" value={totals.invoices} />
+        <Card label="Completed jobs" value={totals.jobs} />
+        <Card label="Invoice records" value={totals.invoices} />
         <Card label="Total invoiced" value={money(totals.invoiced)} />
         <Card label="Paid" value={money(totals.paid)} valueClass="text-green-700" />
         <Card label="Still owed" value={money(totals.outstanding)} valueClass="text-red-700" />
@@ -220,7 +209,7 @@ export default function CompanyAnalyticsPage() {
       ) : (
         <>
           <div className="grid gap-6 xl:grid-cols-2">
-            <Chart title="Jobs by agent or company">
+            <Chart title="Completed jobs by agent or company">
               {rows.map((row) => (
                 <Bar
                   key={row.key}
@@ -257,7 +246,7 @@ export default function CompanyAnalyticsPage() {
                 <thead className="bg-slate-100 text-xs uppercase text-slate-600">
                   <tr>
                     <th className="px-4 py-3">Agent / company</th>
-                    <th className="px-4 py-3 text-right">Jobs</th>
+                    <th className="px-4 py-3 text-right">Completed jobs</th>
                     <th className="px-4 py-3 text-right">Invoices</th>
                     <th className="px-4 py-3 text-right">Total invoiced</th>
                     <th className="px-4 py-3 text-right">Paid</th>
