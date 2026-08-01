@@ -2110,36 +2110,23 @@ export default function InvoicesPage() {
                           {invoice.status === "paid" ? (
                             <button
                               type="button"
-                              onClick={() =>
-                                openPaidDatePicker(invoice)
-                              }
+                              onClick={() => openPaidDatePicker(invoice)}
                               title={
                                 invoice.paid_at
-                                  ? `Paid on ${formatDate(
-                                      String(invoice.paid_at).slice(0, 10)
-                                    )}. Click to change the payment date.`
+                                  ? `Paid on ${formatDate(String(invoice.paid_at).slice(0, 10))}. Click to change the payment date.`
                                   : "Paid. Click to change the payment date."
                               }
-                              className="inline-flex items-center gap-1 rounded-full bg-green-100 px-2.5 py-1 text-xs font-bold text-green-800 hover:bg-green-200"
+                              className="inline-flex rounded-full bg-green-100 px-3 py-1 text-xs font-semibold text-green-700 hover:bg-green-200"
                             >
-                              <span aria-hidden="true">🟢</span>
                               Paid
                             </button>
                           ) : invoice.status === "cancelled" ? (
-                            <span className="inline-flex rounded-full bg-slate-200 px-2.5 py-1 text-xs font-bold text-slate-700">
-                              Cancelled
-                            </span>
+                            <span className="font-medium text-slate-500">Cancelled</span>
                           ) : invoice.status === "draft" ? (
-                            <span className="inline-flex rounded-full bg-slate-200 px-2.5 py-1 text-xs font-bold text-slate-700">
-                              Draft
-                            </span>
+                            <span className="font-medium text-blue-600">Draft</span>
                           ) : (
-                            <span
-                              title={paymentTimingText(invoice)}
-                              className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2.5 py-1 text-xs font-bold text-red-800"
-                            >
-                              <span aria-hidden="true">🔴</span>
-                              Unpaid
+                            <span className="font-medium text-red-600">
+                              {paymentTimingText(invoice)}
                             </span>
                           )}
                         </td>
@@ -2154,23 +2141,22 @@ export default function InvoicesPage() {
                             }
                             title={
                               invoice.sent_at
-                                ? `Sent on ${formatDate(
-                                    String(invoice.sent_at).slice(0, 10)
-                                  )}. Click to mark as not sent.`
+                                ? `Sent on ${formatDate(String(invoice.sent_at).slice(0, 10))}. Click to mark as not sent.`
                                 : "Not sent. Click to mark as sent."
                             }
-                            aria-label={
+                            className={`inline-flex h-7 w-7 items-center justify-center rounded-md border transition ${
                               invoice.sent_at
-                                ? "Invoice sent. Click to mark as not sent."
-                                : "Invoice not sent. Click to mark as sent."
-                            }
-                            className={`inline-flex h-7 w-7 items-center justify-center rounded-full text-sm font-bold transition ${
-                              invoice.sent_at
-                                ? "bg-green-600 text-white hover:bg-green-700"
-                                : "border-2 border-slate-300 bg-white text-transparent hover:border-slate-400"
+                                ? "border-green-600 bg-green-600 text-white hover:bg-green-700"
+                                : "border-slate-300 bg-white text-slate-300 hover:border-slate-400"
                             }`}
                           >
-                            {invoice.sent_at ? "✓" : "✓"}
+                            {invoice.sent_at ? (
+                              <svg viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                <path d="M4 10.5 8 14.5 16 5.5" />
+                              </svg>
+                            ) : (
+                              <span className="h-2 w-2 rounded-sm bg-current" />
+                            )}
                           </button>
                         </td>
 
@@ -2365,52 +2351,30 @@ export default function InvoicesPage() {
                     </div>
 
                     <div>
-                      <dt className="text-slate-500">
-                        Payment
-                      </dt>
+                      <dt className="text-slate-500">Payment</dt>
                       <dd className="mt-1">
                         {invoice.status === "paid" ? (
                           <button
                             type="button"
-                            onClick={() =>
-                              openPaidDatePicker(invoice)
-                            }
-                            title={
-                              invoice.paid_at
-                                ? `Paid on ${formatDate(
-                                    String(invoice.paid_at).slice(0, 10)
-                                  )}. Click to change the payment date.`
-                                : "Paid. Click to change the payment date."
-                            }
-                            className="inline-flex items-center gap-1 rounded-full bg-green-100 px-2.5 py-1 text-xs font-bold text-green-800"
+                            onClick={() => openPaidDatePicker(invoice)}
+                            className="inline-flex rounded-full bg-green-100 px-3 py-1 text-xs font-semibold text-green-700"
                           >
-                            <span aria-hidden="true">🟢</span>
                             Paid
                           </button>
                         ) : invoice.status === "cancelled" ? (
-                          <span className="inline-flex rounded-full bg-slate-200 px-2.5 py-1 text-xs font-bold text-slate-700">
-                            Cancelled
-                          </span>
+                          <span className="font-medium text-slate-500">Cancelled</span>
                         ) : invoice.status === "draft" ? (
-                          <span className="inline-flex rounded-full bg-slate-200 px-2.5 py-1 text-xs font-bold text-slate-700">
-                            Draft
-                          </span>
+                          <span className="font-medium text-blue-600">Draft</span>
                         ) : (
-                          <span
-                            title={paymentTimingText(invoice)}
-                            className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2.5 py-1 text-xs font-bold text-red-800"
-                          >
-                            <span aria-hidden="true">🔴</span>
-                            Unpaid
+                          <span className="font-medium text-red-600">
+                            {paymentTimingText(invoice)}
                           </span>
                         )}
                       </dd>
                     </div>
 
                     <div>
-                      <dt className="text-slate-500">
-                        Sent
-                      </dt>
+                      <dt className="text-slate-500">Sent</dt>
                       <dd className="mt-1">
                         <button
                           type="button"
@@ -2419,25 +2383,19 @@ export default function InvoicesPage() {
                               ? markAsUnsent(invoice)
                               : markAsSent(invoice)
                           }
-                          title={
+                          className={`inline-flex h-7 w-7 items-center justify-center rounded-md border ${
                             invoice.sent_at
-                              ? `Sent on ${formatDate(
-                                  String(invoice.sent_at).slice(0, 10)
-                                )}. Click to mark as not sent.`
-                              : "Not sent. Click to mark as sent."
-                          }
-                          aria-label={
-                            invoice.sent_at
-                              ? "Invoice sent. Click to mark as not sent."
-                              : "Invoice not sent. Click to mark as sent."
-                          }
-                          className={`inline-flex h-7 w-7 items-center justify-center rounded-full text-sm font-bold ${
-                            invoice.sent_at
-                              ? "bg-green-600 text-white"
-                              : "border-2 border-slate-300 bg-white text-transparent"
+                              ? "border-green-600 bg-green-600 text-white"
+                              : "border-slate-300 bg-white text-slate-300"
                           }`}
                         >
-                          ✓
+                          {invoice.sent_at ? (
+                            <svg viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                              <path d="M4 10.5 8 14.5 16 5.5" />
+                            </svg>
+                          ) : (
+                            <span className="h-2 w-2 rounded-sm bg-current" />
+                          )}
                         </button>
                       </dd>
                     </div>
