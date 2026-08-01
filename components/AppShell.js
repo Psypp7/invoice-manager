@@ -6,7 +6,7 @@ import { supabase } from "../lib/supabase";
 
 const menuItems = [
   { name: "Dashboard", href: "/" },
-  { name: "Jobs", href: "/jobs" },
+  { name: "Company Analytics", href: "/company-analytics" },
   { name: "Invoices", href: "/invoices" },
   { name: "Invoice Register", href: "/invoice-register" },
   { name: "Clients", href: "/clients" },
