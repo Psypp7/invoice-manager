@@ -6,14 +6,22 @@ import { supabase } from "../lib/supabase";
 
 const menuItems = [
   { name: "Dashboard", href: "/" },
-  { name: "Company Analytics", href: "/company-analytics" },
+  {
+    name: "Company Analytics",
+    href: "/company-analytics",
+  },
   { name: "Invoices", href: "/invoices" },
-  { name: "Invoice Register", href: "/invoice-register" },
+  {
+    name: "Invoice Register",
+    href: "/invoice-register",
+  },
   { name: "Clients", href: "/clients" },
-  { name: "Properties", href: "/properties" },
   { name: "Calendar", href: "/calendar" },
   { name: "Settings", href: "/settings" },
-  { name: "Invoice Email", href: "/settings/email" },
+  {
+    name: "Invoice Email",
+    href: "/settings/email",
+  },
 ];
 
 const publicRoutes = ["/login"];
@@ -29,12 +37,14 @@ export default function AppShell({ children }) {
   );
 
   async function handleLogout() {
-    const { error } = await supabase.auth.signOut();
+    const { error } =
+      await supabase.auth.signOut();
 
     if (error) {
       console.error("Logout error:", error);
       window.alert(
-        error.message || "You could not be signed out."
+        error.message ||
+          "You could not be signed out."
       );
       return;
     }
@@ -69,7 +79,9 @@ export default function AppShell({ children }) {
             const isActive =
               pathname === item.href ||
               (item.href !== "/" &&
-                pathname.startsWith(`${item.href}/`));
+                pathname.startsWith(
+                  `${item.href}/`
+                ));
 
             return (
               <Link
