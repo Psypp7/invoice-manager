@@ -30,6 +30,14 @@ function validInvoiceNumber(value) {
   );
 }
 
+function invoiceNumberValue(value) {
+  const match = normaliseInvoiceNumber(value).match(
+    /^RL(\d+)$/
+  );
+
+  return match ? Number(match[1]) : -1;
+}
+
 function parseAmount(value) {
   const number = Number(
     clean(value)
@@ -344,6 +352,29 @@ export default function ImportInvoicesPage() {
           row.selected &&
           !rowProblem(row)
       ),
+    [rows]
+  );
+
+  const sortedRows = useMemo(
+    () =>
+      [...rows].sort((first, second) => {
+        const numberDifference =
+          invoiceNumberValue(
+            second.invoice_number
+          ) -
+          invoiceNumberValue(
+            first.invoice_number
+          );
+
+        if (numberDifference !== 0) {
+          return numberDifference;
+        }
+
+        return (
+          Number(second.source_row || 0) -
+          Number(first.source_row || 0)
+        );
+      }),
     [rows]
   );
 
@@ -1352,7 +1383,7 @@ export default function ImportInvoicesPage() {
               </thead>
 
               <tbody>
-                {rows.map((row) => {
+                {sortedRows.map((row) => {
                   const problem =
                     rowProblem(row);
 
