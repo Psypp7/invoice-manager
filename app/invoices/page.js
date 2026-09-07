@@ -897,44 +897,7 @@ export default function InvoicesPage() {
     }
   }
 
-  async function markAsPaid(invoice) {
-    setMessage("");
-
-    try {
-      const today = getToday();
-      const paidAt = `${today}T12:00:00.000Z`;
-
-      const { error } = await supabase
-        .from("invoices")
-        .update({
-          status: "paid",
-          amount_paid: Number(invoice.total),
-          balance_due: 0,
-          paid_at: paidAt,
-        })
-        .eq("id", invoice.id)
-        .eq("business_id", business.id);
-
-      if (error) {
-        throw error;
-      }
-
-      await loadInvoices(business.id);
-
-      setMessage(
-        `${invoice.invoice_number} marked as paid on ${formatDate(today)}.`
-      );
-    } catch (error) {
-      console.error(error);
-
-      setMessage(
-        error?.message ||
-          "Could not mark the invoice as paid."
-      );
-    }
-  }
-
-  function markAsPaid(invoice) {
+  function openPaidDatePicker(invoice) {
     const existingPaidDate = invoice.paid_at
       ? String(invoice.paid_at).slice(0, 10)
       : getToday();
@@ -2118,7 +2081,7 @@ export default function InvoicesPage() {
                               }
                               className="inline-flex rounded-full bg-green-100 px-3 py-1 text-xs font-semibold text-green-700 hover:bg-green-200"
                             >
-                              Paid
+                              {paymentTimingText(invoice)}
                             </button>
                           ) : invoice.status === "cancelled" ? (
                             <span className="font-medium text-slate-500">Cancelled</span>
@@ -2236,7 +2199,7 @@ export default function InvoicesPage() {
                                 <button
                                   type="button"
                                   onClick={() =>
-                                    markAsPaid(
+                                    openPaidDatePicker(
                                       invoice
                                     )
                                   }
@@ -2486,7 +2449,7 @@ export default function InvoicesPage() {
                         <button
                           type="button"
                           onClick={() =>
-                            markAsPaid(invoice)
+                            openPaidDatePicker(invoice)
                           }
                           className="font-semibold text-green-600"
                         >
