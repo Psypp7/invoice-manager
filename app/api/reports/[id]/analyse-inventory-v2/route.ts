@@ -2232,11 +2232,6 @@ export async function POST(
             result.model
           ),
 
-        // Keep "model" too so old/new renderer code can read it.
-        model:
-          safeText(
-            result.model
-          ),
 
         count_details:
           safeArray(
