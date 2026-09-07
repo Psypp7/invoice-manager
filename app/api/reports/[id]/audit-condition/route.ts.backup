@@ -1,0 +1,2405 @@
+import { NextResponse } from "next/server";
+import { GoogleGenAI } from "@google/genai";
+import { createClient } from "../../../../../lib/supabase/server";
+
+export const runtime = "nodejs";
+export const maxDuration = 1200;
+
+// ============================================================
+// TYPES
+// ============================================================
+
+type ExistingPhoto = {
+  id: string;
+  sort_order: number;
+  section_id: string | null;
+  ai_comment: string | null;
+  ai_label: string | null;
+  ai_analysis: any;
+  review_required: boolean;
+  include_in_report: boolean;
+};
+
+type AuditResult = {
+  photo_record_id: string;
+
+  page_number: number;
+  photo_index_on_page: number;
+
+  visible_defect: boolean;
+  defect_details: string;
+
+  cleanliness_issue: boolean;
+  cleanliness_details: string;
+
+  corrected_condition: string;
+  corrected_cleanliness: string;
+
+  corrected_caption_type: string;
+  corrected_caption: string;
+
+  meter_type: string;
+  meter_reading: string;
+  meter_serial_number: string;
+
+  confidence: number;
+  review_required: boolean;
+
+  reasoning_note: string;
+};
+
+// ============================================================
+// STRUCTURED OUTPUT SCHEMA
+// ============================================================
+
+const auditSchema: any = {
+  type: "object",
+
+  properties: {
+    audits: {
+      type: "array",
+
+      items: {
+        type: "object",
+
+        properties: {
+          photo_record_id: {
+            type: "string",
+          },
+
+          page_number: {
+            type: "integer",
+          },
+
+          photo_index_on_page: {
+            type: "integer",
+          },
+
+          visible_defect: {
+            type: "boolean",
+          },
+
+          defect_details: {
+            type: "string",
+          },
+
+          cleanliness_issue: {
+            type: "boolean",
+          },
+
+          cleanliness_details: {
+            type: "string",
+          },
+
+          corrected_condition: {
+            type: "string",
+          },
+
+          corrected_cleanliness: {
+            type: "string",
+          },
+
+          corrected_caption_type: {
+            type: "string",
+
+            enum: [
+              "full_description",
+              "additional_image",
+              "as_above",
+              "internal_view",
+              "specific_defect",
+              "meter",
+              "alarm",
+              "key",
+            ],
+          },
+
+          corrected_caption: {
+            type: "string",
+          },
+
+          meter_type: {
+            type: "string",
+          },
+
+          meter_reading: {
+            type: "string",
+          },
+
+          meter_serial_number: {
+            type: "string",
+          },
+
+          confidence: {
+            type: "integer",
+          },
+
+          review_required: {
+            type: "boolean",
+          },
+
+          reasoning_note: {
+            type: "string",
+          },
+        },
+
+        required: [
+          "photo_record_id",
+          "page_number",
+          "photo_index_on_page",
+          "visible_defect",
+          "defect_details",
+          "cleanliness_issue",
+          "cleanliness_details",
+          "corrected_condition",
+          "corrected_cleanliness",
+          "corrected_caption_type",
+          "corrected_caption",
+          "meter_type",
+          "meter_reading",
+          "meter_serial_number",
+          "confidence",
+          "review_required",
+          "reasoning_note",
+        ],
+
+        additionalProperties: false,
+      },
+    },
+  },
+
+  required: ["audits"],
+
+  additionalProperties: false,
+};
+
+// ============================================================
+// HELPERS
+// ============================================================
+
+function safeText(value: unknown): string {
+  if (typeof value !== "string") {
+    return "";
+  }
+
+  return value.trim();
+}
+
+function safeInteger(value: unknown): number {
+  const number = Number(value);
+
+  if (!Number.isFinite(number)) {
+    return 0;
+  }
+
+  return Math.max(
+    0,
+    Math.round(number)
+  );
+}
+
+function safeBoolean(
+  value: unknown,
+  fallback = false
+): boolean {
+  if (typeof value === "boolean") {
+    return value;
+  }
+
+  return fallback;
+}
+
+function parseJsonObject(value: unknown): any {
+  if (!value) {
+    return {};
+  }
+
+  if (
+    typeof value === "object" &&
+    !Array.isArray(value)
+  ) {
+    return value;
+  }
+
+  if (typeof value === "string") {
+    try {
+      return JSON.parse(value);
+    } catch {
+      return {};
+    }
+  }
+
+  return {};
+}
+
+function sleep(milliseconds: number) {
+  return new Promise((resolve) =>
+    setTimeout(resolve, milliseconds)
+  );
+}
+// ============================================================
+// GEMINI RATE-LIMIT RETRY
+// ============================================================
+
+function getRetryDelayFromError(error: any): number | null {
+  const message =
+    error?.message ||
+    error?.error?.message ||
+    error?.cause?.message ||
+    "";
+
+  const match = String(message).match(
+    /retry in\s+([\d.]+)s/i
+  );
+
+  if (!match) {
+    return null;
+  }
+
+  const seconds =
+    Number(match[1]);
+
+  if (
+    !Number.isFinite(seconds)
+  ) {
+    return null;
+  }
+
+  // Give Google a little extra breathing room.
+  return Math.ceil(
+    seconds * 1000
+  ) + 3000;
+}
+
+function isRetryableGeminiError(
+  error: any
+): boolean {
+  const status =
+    error?.statusCode ||
+    error?.status ||
+    error?.cause?.statusCode;
+
+  const message = String(
+    error?.message ||
+    error?.error?.message ||
+    ""
+  );
+
+  return (
+    status === 429 ||
+    status === 503 ||
+    message.includes("429") ||
+    message.includes(
+      "RESOURCE_EXHAUSTED"
+    ) ||
+    message.includes(
+      "too_many_requests"
+    )
+  );
+}
+
+async function createGeminiInteractionWithRetry(
+  ai: GoogleGenAI,
+  options: any
+) {
+  const MAX_RETRIES = 6;
+
+  for (
+    let attempt = 0;
+    attempt <= MAX_RETRIES;
+    attempt++
+  ) {
+    try {
+      return await ai.interactions.create(
+        options
+      );
+    } catch (error: any) {
+      if (
+        !isRetryableGeminiError(
+          error
+        ) ||
+        attempt === MAX_RETRIES
+      ) {
+        throw error;
+      }
+
+      const serverDelay =
+        getRetryDelayFromError(
+          error
+        );
+
+      const exponentialDelay =
+        Math.min(
+          60000,
+          5000 *
+            Math.pow(
+              2,
+              attempt
+            )
+        );
+
+      const jitter =
+        Math.floor(
+          Math.random() * 2500
+        );
+
+      const waitTime =
+        Math.max(
+          serverDelay || 0,
+          exponentialDelay
+        ) + jitter;
+
+      console.log("");
+      console.log(
+        "=========================================="
+      );
+
+      console.log(
+        "GEMINI RATE LIMIT REACHED"
+      );
+
+      console.log(
+        "=========================================="
+      );
+
+      console.log(
+        `Retry attempt ${
+          attempt + 1
+        }/${MAX_RETRIES}`
+      );
+
+      console.log(
+        `Waiting ${Math.ceil(
+          waitTime / 1000
+        )} seconds before retrying...`
+      );
+
+      await sleep(
+        waitTime
+      );
+    }
+  }
+
+  throw new Error(
+    "Gemini retry loop ended unexpectedly."
+  );
+}
+
+// ============================================================
+// PARSE GEMINI RESPONSE
+// ============================================================
+
+function parseAuditJson(
+  rawText: string
+): AuditResult[] {
+  let text = rawText.trim();
+
+  if (text.startsWith("```json")) {
+    text = text.slice(7);
+  } else if (text.startsWith("```")) {
+    text = text.slice(3);
+  }
+
+  if (text.endsWith("```")) {
+    text = text.slice(0, -3);
+  }
+
+  text = text.trim();
+
+  let parsed: any;
+
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    console.error(
+      "Could not parse audit JSON."
+    );
+
+    console.error(
+      "Response length:",
+      text.length
+    );
+
+    console.error(
+      "Beginning:",
+      text.slice(0, 2000)
+    );
+
+    console.error(
+      "End:",
+      text.slice(-2000)
+    );
+
+    throw new Error(
+      "Gemini condition audit returned invalid JSON."
+    );
+  }
+
+  if (
+    !parsed ||
+    !Array.isArray(parsed.audits)
+  ) {
+    throw new Error(
+      "Gemini condition audit did not return an audits array."
+    );
+  }
+
+  return parsed.audits.map(
+    (audit: any) => {
+      const confidence = Math.min(
+        100,
+        Math.max(
+          0,
+          safeInteger(
+            audit?.confidence
+          )
+        )
+      );
+
+      return {
+        photo_record_id:
+          safeText(
+            audit?.photo_record_id
+          ),
+
+        page_number:
+          safeInteger(
+            audit?.page_number
+          ),
+
+        photo_index_on_page:
+          safeInteger(
+            audit?.photo_index_on_page
+          ),
+
+        visible_defect:
+          safeBoolean(
+            audit?.visible_defect
+          ),
+
+        defect_details:
+          safeText(
+            audit?.defect_details
+          ),
+
+        cleanliness_issue:
+          safeBoolean(
+            audit?.cleanliness_issue
+          ),
+
+        cleanliness_details:
+          safeText(
+            audit?.cleanliness_details
+          ),
+
+        corrected_condition:
+          safeText(
+            audit?.corrected_condition
+          ),
+
+        corrected_cleanliness:
+          safeText(
+            audit?.corrected_cleanliness
+          ),
+
+        corrected_caption_type:
+          safeText(
+            audit?.corrected_caption_type
+          ),
+
+        corrected_caption:
+          safeText(
+            audit?.corrected_caption
+          ),
+
+        meter_type:
+          safeText(
+            audit?.meter_type
+          ),
+
+        meter_reading:
+          safeText(
+            audit?.meter_reading
+          ),
+
+        meter_serial_number:
+          safeText(
+            audit?.meter_serial_number
+          ),
+
+        confidence,
+
+        review_required:
+          safeBoolean(
+            audit?.review_required
+          ) ||
+          confidence < 75,
+
+        reasoning_note:
+          safeText(
+            audit?.reasoning_note
+          ),
+      };
+    }
+  );
+}
+
+// ============================================================
+// BUILD SMALL AUDIT MAP
+// ============================================================
+
+function buildPhotoMap(
+  photos: ExistingPhoto[]
+) {
+  return photos.map(
+    (photo) => {
+      const analysis =
+        parseJsonObject(
+          photo.ai_analysis
+        );
+
+      return {
+        photo_record_id:
+          photo.id,
+
+        page_number:
+          safeInteger(
+            analysis.page_number
+          ),
+
+        photo_index_on_page:
+          safeInteger(
+            analysis.photo_index_on_page
+          ),
+
+        room_name:
+          safeText(
+            analysis.room_name
+          ),
+
+        section_name:
+          safeText(
+            analysis.section_name
+          ),
+
+        existing_caption:
+          safeText(
+            analysis.existing_caption
+          ),
+
+        current_caption_type:
+          safeText(
+            photo.ai_label
+          ),
+
+        current_final_caption:
+          safeText(
+            photo.ai_comment
+          ),
+
+        current_condition:
+          safeText(
+            analysis.condition
+          ),
+
+        current_cleanliness:
+          safeText(
+            analysis.cleanliness
+          ),
+
+        current_damage_visible:
+          safeBoolean(
+            analysis.damage_visible
+          ),
+
+        current_damage_details:
+          safeText(
+            analysis.damage_details
+          ),
+
+        current_meter_type:
+          safeText(
+            analysis.meter_type
+          ),
+
+        current_meter_reading:
+          safeText(
+            analysis.meter_reading
+          ),
+
+        current_meter_serial_number:
+          safeText(
+            analysis.meter_serial_number
+          ),
+      };
+    }
+  );
+}
+
+// ============================================================
+// AUDIT PROMPT
+// ============================================================
+
+function buildAuditPrompt(
+  startPage: number,
+  endPage: number,
+  photos: ExistingPhoto[]
+): string {
+  const photoMap =
+    JSON.stringify(
+      buildPhotoMap(photos),
+      null,
+      2
+    );
+
+  return `
+You are performing STAGE 2.5 of a professional UK property inventory system for Right Inventories.
+
+STAGE 2 already located the photographs and created preliminary captions.
+
+THIS IS A STRICT SECOND-PASS VISUAL CONDITION AUDIT.
+
+You must NOT simply agree with the previous analysis.
+
+You must independently inspect the actual photographs in the attached PDF.
+
+==================================================
+ONLY ANALYSE THESE ORIGINAL PDF PAGES
+==================================================
+
+${startPage} TO ${endPage}
+
+Ignore inspection photographs outside this page range.
+
+==================================================
+EXISTING PHOTO RECORDS TO AUDIT
+==================================================
+
+${photoMap}
+
+You MUST return exactly one audit result for each supplied photo_record_id.
+
+Do not create extra photo records.
+
+Do not omit supplied photo records.
+
+==================================================
+CRITICAL RULE: IGNORE REPORT BOILERPLATE
+==================================================
+
+The source inventory document may contain generic wording stating or implying that items should be assumed to be:
+
+good condition
+clean condition
+working
+undamaged
+
+unless otherwise stated.
+
+IGNORE ALL SUCH GENERIC ASSUMPTIONS.
+
+Those statements are NOT visual evidence.
+
+Judge condition ONLY from what is genuinely visible in the inspection photograph.
+
+Do not copy the previous AI assessment merely because it says:
+
+Good condition
+Clean condition
+95 confidence
+
+Those values are preliminary and MUST be challenged.
+
+==================================================
+YOUR MAIN PURPOSE
+==================================================
+
+Look carefully for subtle visual evidence including:
+
+scuffs
+rub marks
+scratches
+chips
+small chips
+dents
+cracks
+hairline cracks
+marks
+dark marks
+stains
+discolouration
+paint wear
+paint loss
+paint touch-ups
+old painted-over damage
+holes
+fixing holes
+water marks
+water staining
+mould
+mildew
+dirty edges
+dust
+debris
+grease
+food residue
+limescale
+soap residue
+rust
+sealant deterioration
+grout discolouration
+worn finishes
+damaged corners
+damaged edges
+damaged laminate
+damaged worktops
+swelling
+peeling
+loose-looking trim
+missing parts
+broken parts
+aged fittings
+general wear
+
+Look at:
+
+low level
+mid level
+upper level
+corners
+edges
+around handles
+around switches
+around sockets
+around door frames
+around window frames
+above and below skirting
+junctions between surfaces
+
+==================================================
+DO NOT INVENT DAMAGE
+==================================================
+
+A shadow is not automatically a stain.
+
+A reflection is not automatically damage.
+
+A joint line is not automatically a crack.
+
+Perspective distortion is not automatically damage.
+
+Normal material grain is not automatically scratching.
+
+Only mark visible_defect = true when there is genuine visual evidence.
+
+If uncertain:
+
+review_required = true
+
+and reduce confidence.
+
+==================================================
+CONDITION RULE
+==================================================
+
+Do NOT automatically use:
+
+Good condition
+
+If the photograph clearly shows:
+
+scuffs
+chips
+marks
+wear
+damage
+age-related deterioration
+
+then corrected_condition must reflect that.
+
+Useful Right Inventories wording includes:
+
+Good condition
+Good condition overall
+Fair condition
+Aged
+Light signs of general use
+Signs of general use
+Light wear
+Moderate wear
+Heavy wear
+Scuffs in places
+Marks consistent with age
+Old chips painted over
+
+Use only wording supported by the photograph.
+
+==================================================
+CLEANLINESS RULE
+==================================================
+
+Do NOT automatically use:
+
+Clean condition
+
+Inspect for visible cleanliness issues.
+
+Useful wording:
+
+Good and clean condition
+Clean condition
+Needs light cleaning
+Needs further cleaning
+Dust present
+Debris present
+Limescale present
+Grease residue present
+Marks requiring cleaning
+
+If cleanliness cannot genuinely be assessed:
+
+use an empty corrected_cleanliness
+
+or mark review_required if material.
+
+==================================================
+CAPTION RULE
+==================================================
+
+The preliminary caption may currently be:
+
+Additional image
+
+Do NOT preserve "Additional image" automatically.
+
+If that photograph reveals a DIFFERENT defect or useful condition evidence, change it to a specific description.
+
+Example:
+
+CURRENT:
+Additional image
+
+BUT PHOTO SHOWS:
+Visible chip to lower wall edge
+
+THEN:
+corrected_caption_type = "specific_defect"
+
+corrected_caption could be:
+
+Chip to low level
+
+If the photograph genuinely adds no new evidence:
+
+Additional image
+
+is correct.
+
+If the same defect already shown immediately before is visible again:
+
+As above
+
+may be correct.
+
+==================================================
+RIGHT INVENTORIES WRITING STYLE
+==================================================
+
+Keep captions concise.
+
+GOOD:
+
+White painted walls
+Good condition overall
+Light scuffs to low level
+
+GOOD:
+
+Paint chip to lower edge
+
+GOOD:
+
+Light marks adjacent to socket
+
+GOOD:
+
+Limescale visible around tap base
+
+BAD:
+
+Upon inspecting this image it appears that there may potentially be some light scuff marks visible towards the bottom area.
+
+Never write long prose.
+
+==================================================
+METERS — STRICT OVERRIDE
+==================================================
+
+For meter photographs:
+
+Read the reading ONLY if every important digit is clearly visible.
+
+Never guess a digit.
+
+Read the serial number ONLY if every important character is clear.
+
+If meter_reading is blank because the reading is unclear:
+
+review_required MUST be true.
+
+If meter_serial_number is blank because the serial number is unclear:
+
+review_required MUST be true.
+
+If the photograph is only a general supporting meter view and is not intended to show a readable display, it may remain an Additional image.
+
+meter_type must be:
+
+Electric
+Gas
+Water
+
+or empty string.
+
+==================================================
+ALARMS / EQUIPMENT
+==================================================
+
+Static photographs do not prove functionality.
+
+Never say:
+
+working
+tested
+operational
+functioning
+
+unless the source photograph contains explicit evidence.
+
+==================================================
+CONFIDENCE
+==================================================
+
+Do NOT give 95 confidence by default.
+
+Use confidence realistically.
+
+Examples:
+
+95-100:
+very clear visual evidence
+
+85-94:
+clear image and confident conclusion
+
+75-84:
+reasonable conclusion but some limitation
+
+60-74:
+meaningful uncertainty — review required
+
+below 60:
+poor evidence — review required
+
+If subtle damage may or may not be present, reduce confidence.
+
+==================================================
+REVIEW REQUIRED
+==================================================
+
+review_required must be true where:
+
+confidence < 75
+
+or:
+
+damage is ambiguous
+cleanliness is ambiguous but important
+photo quality is insufficient
+meter reading is unclear
+meter serial number is unclear
+caption classification is uncertain
+condition conclusion is uncertain
+the previous AI conclusion looks unreliable
+
+==================================================
+REASONING NOTE
+==================================================
+
+reasoning_note is INTERNAL ONLY.
+
+Keep it short.
+
+Examples:
+
+"Light scuffs visible at low level."
+
+"No visible defect; duplicate supporting view."
+
+"Possible mark may be shadow; clerk review advised."
+
+"Meter display not sufficiently clear."
+
+Do NOT put reasoning_note into the final inventory caption.
+
+==================================================
+FINAL RULE
+==================================================
+
+Audit the photograph visually.
+
+Do not trust the previous result merely because it exists.
+
+Do not invent damage.
+
+Do not invent cleanliness issues.
+
+Do not guess meter values.
+
+Return exactly one result for every supplied photo_record_id.
+
+Return only JSON matching the schema.
+`;
+}
+
+// ============================================================
+// AUDIT ONE PAGE GROUP
+// ============================================================
+
+async function auditBatch({
+  ai,
+  pdfBase64,
+  startPage,
+  endPage,
+  photos,
+}: {
+  ai: GoogleGenAI;
+  pdfBase64: string;
+  startPage: number;
+  endPage: number;
+  photos: ExistingPhoto[];
+}): Promise<AuditResult[]> {
+  const prompt =
+    buildAuditPrompt(
+      startPage,
+      endPage,
+      photos
+    );
+
+  console.log(
+    `Auditing pages ${startPage}-${endPage} (${photos.length} photo records)...`
+  );
+
+  const interaction =
+    await createGeminiInteractionWithRetry(
+      ai,
+      {
+      model:
+        "gemini-3.6-flash",
+
+      input: [
+        {
+          type: "text",
+          text: prompt,
+        },
+
+        {
+          type: "document",
+          data: pdfBase64,
+          mime_type:
+            "application/pdf",
+        },
+      ],
+
+      response_format: [
+        {
+          type: "text",
+
+          mime_type:
+            "application/json",
+
+          schema:
+            auditSchema,
+        },
+      ],
+
+      generation_config: {
+        thinking_level:
+          "high",
+
+        max_output_tokens:
+          16000,
+      },
+
+    store: false,
+    }
+  );
+
+  const responseText =
+    interaction.output_text;
+
+  if (
+    !responseText ||
+    !responseText.trim()
+  ) {
+    throw new Error(
+      `Gemini returned an empty condition audit for pages ${startPage}-${endPage}.`
+    );
+  }
+
+  console.log(
+    `Audit pages ${startPage}-${endPage} response length:`,
+    responseText.length
+  );
+
+  const audits =
+    parseAuditJson(
+      responseText
+    );
+
+  // ----------------------------------------------------------
+  // VALIDATE IDs
+  // ----------------------------------------------------------
+
+  const allowedIds =
+    new Set(
+      photos.map(
+        (photo) =>
+          photo.id
+      )
+    );
+
+  const filtered =
+    audits.filter(
+      (audit) =>
+        allowedIds.has(
+          audit.photo_record_id
+        )
+    );
+
+  const returnedIds =
+    new Set(
+      filtered.map(
+        (audit) =>
+          audit.photo_record_id
+      )
+    );
+
+  const missing =
+    photos.filter(
+      (photo) =>
+        !returnedIds.has(
+          photo.id
+        )
+    );
+
+  if (
+    missing.length > 0
+  ) {
+    console.warn(
+      `Pages ${startPage}-${endPage}: Gemini omitted ${missing.length} record(s).`
+    );
+
+    throw new Error(
+      `Gemini omitted ${missing.length} photograph audit record(s) on pages ${startPage}-${endPage}.`
+    );
+  }
+
+  return filtered;
+}
+
+// ============================================================
+// ROBUST AUDIT
+//
+// If a multi-page group fails, split it into smaller groups.
+// ============================================================
+
+async function auditBatchRobust({
+  ai,
+  pdfBase64,
+  startPage,
+  endPage,
+  photos,
+}: {
+  ai: GoogleGenAI;
+  pdfBase64: string;
+  startPage: number;
+  endPage: number;
+  photos: ExistingPhoto[];
+}): Promise<AuditResult[]> {
+  try {
+    return await auditBatch({
+      ai,
+      pdfBase64,
+      startPage,
+      endPage,
+      photos,
+    });
+  } catch (error) {
+    console.error(
+      `Audit ${startPage}-${endPage} failed:`,
+      error
+    );
+
+    // A rate-limit error has already been retried by
+    // createGeminiInteractionWithRetry().
+    // Do NOT split the page range and create more requests.
+    if (
+      isRetryableGeminiError(error)
+    ) {
+      throw error;
+    }
+
+    if (
+      startPage ===
+      endPage
+    ) {
+      throw error;
+    }
+    const middle =
+      Math.floor(
+        (
+          startPage +
+          endPage
+        ) /
+          2
+      );
+
+    const firstPhotos =
+      photos.filter(
+        (photo) => {
+          const analysis =
+            parseJsonObject(
+              photo.ai_analysis
+            );
+
+          const page =
+            safeInteger(
+              analysis.page_number
+            );
+
+          return (
+            page >=
+              startPage &&
+            page <=
+              middle
+          );
+        }
+      );
+
+    const secondPhotos =
+      photos.filter(
+        (photo) => {
+          const analysis =
+            parseJsonObject(
+              photo.ai_analysis
+            );
+
+          const page =
+            safeInteger(
+              analysis.page_number
+            );
+
+          return (
+            page >=
+              middle + 1 &&
+            page <=
+              endPage
+          );
+        }
+      );
+
+    let first:
+      AuditResult[] = [];
+
+    let second:
+      AuditResult[] = [];
+
+    if (
+      firstPhotos.length >
+      0
+    ) {
+      first =
+        await auditBatchRobust({
+          ai,
+          pdfBase64,
+
+          startPage,
+
+          endPage:
+            middle,
+
+          photos:
+            firstPhotos,
+        });
+    }
+
+    await sleep(4000);
+
+    if (
+      secondPhotos.length >
+      0
+    ) {
+      second =
+        await auditBatchRobust({
+          ai,
+          pdfBase64,
+
+          startPage:
+            middle + 1,
+
+          endPage,
+
+          photos:
+            secondPhotos,
+        });
+    }
+
+    return [
+      ...first,
+      ...second,
+    ];
+  }
+}
+
+// ============================================================
+// API ROUTE
+// ============================================================
+
+export async function POST(
+  _request: Request,
+
+  context: {
+    params: Promise<{
+      id: string;
+    }>;
+  }
+) {
+  let reportId = "";
+
+  let currentUserId =
+    "";
+
+  let supabaseForError:
+    any = null;
+
+  try {
+    // --------------------------------------------------------
+    // 1. REPORT ID
+    // --------------------------------------------------------
+
+    const params =
+      await context.params;
+
+    reportId =
+      params.id;
+
+    if (!reportId) {
+      return NextResponse.json(
+        {
+          error:
+            "Report ID is missing.",
+        },
+        {
+          status: 400,
+        }
+      );
+    }
+
+    // --------------------------------------------------------
+    // 2. AUTH
+    // --------------------------------------------------------
+
+    const supabase =
+      await createClient();
+
+    supabaseForError =
+      supabase;
+
+    const {
+      data: { user },
+      error: userError,
+    } =
+      await supabase.auth.getUser();
+
+    if (
+      userError ||
+      !user
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            "You are not logged in.",
+        },
+        {
+          status: 401,
+        }
+      );
+    }
+
+    currentUserId =
+      user.id;
+
+    // --------------------------------------------------------
+    // 3. LOAD REPORT
+    // --------------------------------------------------------
+
+    const {
+      data: report,
+      error: reportError,
+    } =
+      await supabase
+        .from(
+          "ai_reports"
+        )
+        .select(
+          `
+          id,
+          created_by,
+          source_pdf_path,
+          source_pdf_name,
+          source_pdf_size,
+          overview,
+          status
+          `
+        )
+        .eq(
+          "id",
+          reportId
+        )
+        .eq(
+          "created_by",
+          user.id
+        )
+        .single();
+
+    if (
+      reportError ||
+      !report
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            "AI report could not be found.",
+        },
+        {
+          status: 404,
+        }
+      );
+    }
+
+    if (
+      !report.source_pdf_path
+    ) {
+      throw new Error(
+        "Source PDF is missing."
+      );
+    }
+
+    // --------------------------------------------------------
+    // 4. LOAD EXISTING STAGE 2 PHOTOS
+    // --------------------------------------------------------
+
+    const {
+      data: existingPhotos,
+      error:
+        existingPhotosError,
+    } =
+      await supabase
+        .from(
+          "ai_report_photos"
+        )
+        .select(
+          `
+          id,
+          sort_order,
+          section_id,
+          ai_comment,
+          ai_label,
+          ai_analysis,
+          review_required,
+          include_in_report
+          `
+        )
+        .eq(
+          "report_id",
+          reportId
+        )
+        .like(
+          "storage_path",
+          "pdf:%"
+        )
+        .order(
+          "sort_order",
+          {
+            ascending: true,
+          }
+        );
+
+    if (
+      existingPhotosError
+    ) {
+      throw new Error(
+        `Could not load existing photograph analysis: ${existingPhotosError.message}`
+      );
+    }
+
+    if (
+      !existingPhotos ||
+      existingPhotos.length ===
+        0
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            "Run Stage 2 photograph analysis before the condition audit.",
+        },
+        {
+          status: 400,
+        }
+      );
+    }
+
+    console.log(
+      "Photographs to condition-audit:",
+      existingPhotos.length
+    );
+
+    // --------------------------------------------------------
+    // 5. PAGE RANGE
+    // --------------------------------------------------------
+
+    const validPhotos:
+      ExistingPhoto[] =
+      existingPhotos.filter(
+        (photo: ExistingPhoto) => {
+          const analysis =
+            parseJsonObject(
+              photo.ai_analysis
+            );
+
+          return (
+            safeInteger(
+              analysis.page_number
+            ) > 0
+          );
+        }
+      );
+
+    if (
+      validPhotos.length ===
+      0
+    ) {
+      throw new Error(
+        "Existing photo records do not contain valid PDF page numbers."
+      );
+    }
+
+    const pages =
+      validPhotos.map(
+        (photo) => {
+          const analysis =
+            parseJsonObject(
+              photo.ai_analysis
+            );
+
+          return safeInteger(
+            analysis.page_number
+          );
+        }
+      );
+
+    const firstPage =
+      Math.min(
+        ...pages
+      );
+
+    const lastPage =
+      Math.max(
+        ...pages
+      );
+
+    console.log(
+      `Condition audit range: pages ${firstPage}-${lastPage}`
+    );
+
+    // --------------------------------------------------------
+    // 6. STATUS
+    // --------------------------------------------------------
+
+    const {
+      error:
+        statusError,
+    } =
+      await supabase
+        .from(
+          "ai_reports"
+        )
+        .update({
+          status:
+            "auditing_condition",
+
+          updated_at:
+            new Date().toISOString(),
+        })
+        .eq(
+          "id",
+          reportId
+        )
+        .eq(
+          "created_by",
+          user.id
+        );
+
+    if (
+      statusError
+    ) {
+      throw new Error(
+        `Could not start condition audit: ${statusError.message}`
+      );
+    }
+
+    // --------------------------------------------------------
+    // 7. DOWNLOAD ORIGINAL PDF
+    // --------------------------------------------------------
+
+    console.log(
+      "Downloading original PDF for condition audit..."
+    );
+
+    const {
+      data: pdfBlob,
+      error:
+        downloadError,
+    } =
+      await supabase.storage
+        .from(
+          "inventory-report-files"
+        )
+        .download(
+          report.source_pdf_path
+        );
+
+    if (
+      downloadError ||
+      !pdfBlob
+    ) {
+      throw new Error(
+        `Could not download source PDF: ${
+          downloadError?.message ||
+          "Unknown storage error"
+        }`
+      );
+    }
+
+    console.log(
+      "Condition audit PDF size:",
+      pdfBlob.size,
+      "bytes"
+    );
+
+    if (
+      pdfBlob.size >
+      50 * 1024 * 1024
+    ) {
+      throw new Error(
+        "The source PDF is larger than 50 MB."
+      );
+    }
+
+    const pdfArrayBuffer =
+      await pdfBlob.arrayBuffer();
+
+    const pdfBase64 =
+      Buffer.from(
+        pdfArrayBuffer
+      ).toString(
+        "base64"
+      );
+
+    // --------------------------------------------------------
+    // 8. GEMINI
+    // --------------------------------------------------------
+
+    if (
+      !process.env
+        .GEMINI_API_KEY
+    ) {
+      throw new Error(
+        "GEMINI_API_KEY is missing from .env.local."
+      );
+    }
+
+    const ai =
+      new GoogleGenAI({});
+
+    // --------------------------------------------------------
+    // 9. AUDIT SMALL PAGE GROUPS
+    //
+    // 3 pages at a time gives this pass much more visual focus
+    // than the original broad photograph analysis.
+    // --------------------------------------------------------
+
+    const PAGE_BATCH_SIZE =
+      3;
+
+    const allAudits:
+      AuditResult[] = [];
+
+    const totalBatches =
+      Math.ceil(
+        (
+          lastPage -
+          firstPage +
+          1
+        ) /
+          PAGE_BATCH_SIZE
+      );
+
+    let batchNumber = 0;
+
+    for (
+      let startPage =
+        firstPage;
+
+      startPage <=
+      lastPage;
+
+      startPage +=
+        PAGE_BATCH_SIZE
+    ) {
+      const endPage =
+        Math.min(
+          startPage +
+            PAGE_BATCH_SIZE -
+            1,
+
+          lastPage
+        );
+
+      const batchPhotos =
+        validPhotos.filter(
+          (photo) => {
+            const analysis =
+              parseJsonObject(
+                photo.ai_analysis
+              );
+
+            const page =
+              safeInteger(
+                analysis.page_number
+              );
+
+            return (
+              page >=
+                startPage &&
+              page <=
+                endPage
+            );
+          }
+        );
+
+      if (
+        batchPhotos.length ===
+        0
+      ) {
+        continue;
+      }
+
+      batchNumber++;
+
+      console.log("");
+      console.log(
+        "=========================================="
+      );
+
+      console.log(
+        `CONDITION AUDIT ${batchNumber}/${totalBatches}: PAGES ${startPage}-${endPage}`
+      );
+
+      console.log(
+        "=========================================="
+      );
+
+      const audits =
+        await auditBatchRobust({
+          ai,
+          pdfBase64,
+          startPage,
+          endPage,
+          photos:
+            batchPhotos,
+        });
+
+      allAudits.push(
+        ...audits
+      );
+
+      console.log(
+        `Accumulated condition audits: ${allAudits.length}`
+      );
+
+      await sleep(4000);
+    }
+
+    // --------------------------------------------------------
+    // 10. VERIFY WE AUDITED ALL PHOTOS
+    // --------------------------------------------------------
+
+    const uniqueAuditMap =
+      new Map<
+        string,
+        AuditResult
+      >();
+
+    for (
+      const audit of
+      allAudits
+    ) {
+      if (
+        audit.photo_record_id
+      ) {
+        uniqueAuditMap.set(
+          audit.photo_record_id,
+          audit
+        );
+      }
+    }
+
+    console.log(
+      "Unique condition audits:",
+      uniqueAuditMap.size
+    );
+
+    if (
+      uniqueAuditMap.size !==
+      validPhotos.length
+    ) {
+      throw new Error(
+        `Condition audit returned ${uniqueAuditMap.size} results for ${validPhotos.length} photo records. No database changes were made.`
+      );
+    }
+
+    // --------------------------------------------------------
+    // 11. PREPARE UPDATED PHOTO RECORDS
+    // --------------------------------------------------------
+
+    const updates =
+      validPhotos.map(
+        (
+          photo:
+            ExistingPhoto
+        ) => {
+          const audit =
+            uniqueAuditMap.get(
+              photo.id
+            );
+
+          if (!audit) {
+            throw new Error(
+              `Condition audit result is missing for photo ${photo.id}.`
+            );
+          }
+
+          const oldAnalysis =
+            parseJsonObject(
+              photo.ai_analysis
+            );
+
+          // --------------------------------------------------
+          // STRICT METER REVIEW OVERRIDE
+          // --------------------------------------------------
+
+          const isMeter =
+            Boolean(
+              safeText(
+                audit.meter_type
+              )
+            ) ||
+            safeText(
+              photo.ai_label
+            ) ===
+              "meter";
+
+          let forcedReview =
+            audit.review_required ||
+            audit.confidence <
+              75;
+
+          if (isMeter) {
+            if (
+              !safeText(
+                audit.meter_reading
+              )
+            ) {
+              forcedReview =
+                true;
+            }
+
+            if (
+              !safeText(
+                audit.meter_serial_number
+              )
+            ) {
+              forcedReview =
+                true;
+            }
+          }
+
+          // --------------------------------------------------
+          // DEFECT OVERRIDE
+          // --------------------------------------------------
+
+          let finalLabel =
+            safeText(
+              audit.corrected_caption_type
+            ) ||
+            safeText(
+              photo.ai_label
+            );
+
+          let finalCaption =
+            safeText(
+              audit.corrected_caption
+            ) ||
+            safeText(
+              photo.ai_comment
+            );
+
+          if (
+            audit.visible_defect &&
+            finalLabel ===
+              "additional_image"
+          ) {
+            finalLabel =
+              "specific_defect";
+
+            if (
+              safeText(
+                audit.defect_details
+              )
+            ) {
+              finalCaption =
+                safeText(
+                  audit.defect_details
+                );
+            }
+          }
+
+          const newAnalysis =
+            {
+              ...oldAnalysis,
+
+              condition:
+                audit.corrected_condition ||
+                safeText(
+                  oldAnalysis.condition
+                ),
+
+              cleanliness:
+                audit.corrected_cleanliness ||
+                safeText(
+                  oldAnalysis.cleanliness
+                ),
+
+              damage_visible:
+                audit.visible_defect,
+
+              damage_details:
+                audit.defect_details,
+
+              confidence:
+                audit.confidence,
+
+              meter_type:
+                audit.meter_type ||
+                safeText(
+                  oldAnalysis.meter_type
+                ),
+
+              meter_reading:
+                audit.meter_reading,
+
+              meter_serial_number:
+                audit.meter_serial_number,
+
+              condition_audit: {
+                audited_at:
+                  new Date().toISOString(),
+
+                visible_defect:
+                  audit.visible_defect,
+
+                defect_details:
+                  audit.defect_details,
+
+                cleanliness_issue:
+                  audit.cleanliness_issue,
+
+                cleanliness_details:
+                  audit.cleanliness_details,
+
+                confidence:
+                  audit.confidence,
+
+                review_required:
+                  forcedReview,
+
+                reasoning_note:
+                  audit.reasoning_note,
+              },
+            };
+
+          return {
+            id:
+              photo.id,
+
+            ai_comment:
+              finalCaption,
+
+            ai_label:
+              finalLabel,
+
+            ai_analysis:
+              newAnalysis,
+
+            review_required:
+              forcedReview,
+          };
+        }
+      );
+
+    // --------------------------------------------------------
+    // 12. WRITE UPDATES
+    //
+    // We only reach this point after EVERY audit succeeded.
+    // --------------------------------------------------------
+
+    console.log(
+      "Saving condition audit updates..."
+    );
+
+    for (
+      const update of
+      updates
+    ) {
+      const {
+        error:
+          updateError,
+      } =
+        await supabase
+          .from(
+            "ai_report_photos"
+          )
+          .update({
+            ai_comment:
+              update.ai_comment,
+
+            ai_label:
+              update.ai_label,
+
+            ai_analysis:
+              update.ai_analysis,
+
+            review_required:
+              update.review_required,
+          })
+          .eq(
+            "id",
+            update.id
+          )
+          .eq(
+            "report_id",
+            reportId
+          );
+
+      if (
+        updateError
+      ) {
+        throw new Error(
+          `Could not update audited photograph ${update.id}: ${updateError.message}`
+        );
+      }
+    }
+
+    // --------------------------------------------------------
+    // 13. AUDIT STATISTICS
+    // --------------------------------------------------------
+
+    const auditedResults =
+      Array.from(
+        uniqueAuditMap.values()
+      );
+
+    const defectCount =
+      auditedResults.filter(
+        (audit) =>
+          audit.visible_defect
+      ).length;
+
+    const cleaningCount =
+      auditedResults.filter(
+        (audit) =>
+          audit.cleanliness_issue
+      ).length;
+
+    const reviewCount =
+      updates.filter(
+        (update) =>
+          update.review_required
+      ).length;
+
+    const meterReviewCount =
+      updates.filter(
+        (update) => {
+          const analysis =
+            parseJsonObject(
+              update.ai_analysis
+            );
+
+          return (
+            safeText(
+              analysis.meter_type
+            ) &&
+            update.review_required
+          );
+        }
+      ).length;
+
+    const captionChanges =
+      updates.filter(
+        (
+          update,
+          index
+        ) => {
+          const old =
+            validPhotos[
+              index
+            ];
+
+          return (
+            safeText(
+              old.ai_comment
+            ) !==
+              safeText(
+                update.ai_comment
+              ) ||
+            safeText(
+              old.ai_label
+            ) !==
+              safeText(
+                update.ai_label
+              )
+          );
+        }
+      ).length;
+
+    // --------------------------------------------------------
+    // 14. SAVE AUDIT SUMMARY
+    // --------------------------------------------------------
+
+    const oldOverview =
+      report.overview &&
+      typeof report.overview ===
+        "object" &&
+      !Array.isArray(
+        report.overview
+      )
+        ? report.overview
+        : {};
+
+    const {
+      error:
+        reportUpdateError,
+    } =
+      await supabase
+        .from(
+          "ai_reports"
+        )
+        .update({
+          status:
+            "condition_audited",
+
+          overview: {
+            ...oldOverview,
+
+            condition_audit: {
+              audited_at:
+                new Date().toISOString(),
+
+              audited_photo_count:
+                validPhotos.length,
+
+              visible_defect_count:
+                defectCount,
+
+              cleaning_issue_count:
+                cleaningCount,
+
+              review_required_count:
+                reviewCount,
+
+              meter_review_count:
+                meterReviewCount,
+
+              caption_change_count:
+                captionChanges,
+
+              page_batch_size:
+                PAGE_BATCH_SIZE,
+
+              model:
+                "gemini-3.6-flash",
+
+              thinking_level:
+                "high",
+            },
+          },
+
+          updated_at:
+            new Date().toISOString(),
+        })
+        .eq(
+          "id",
+          reportId
+        )
+        .eq(
+          "created_by",
+          user.id
+        );
+
+    if (
+      reportUpdateError
+    ) {
+      throw new Error(
+        `Could not update condition audit status: ${reportUpdateError.message}`
+      );
+    }
+
+    // --------------------------------------------------------
+    // 15. SUCCESS
+    // --------------------------------------------------------
+
+    console.log("");
+    console.log(
+      "=========================================="
+    );
+
+    console.log(
+      "CONDITION AUDIT COMPLETE"
+    );
+
+    console.log(
+      "=========================================="
+    );
+
+    console.log(
+      "Audited photos:",
+      validPhotos.length
+    );
+
+    console.log(
+      "Visible defects:",
+      defectCount
+    );
+
+    console.log(
+      "Cleaning issues:",
+      cleaningCount
+    );
+
+    console.log(
+      "Needs review:",
+      reviewCount
+    );
+
+    console.log(
+      "Meter reviews:",
+      meterReviewCount
+    );
+
+    console.log(
+      "Caption changes:",
+      captionChanges
+    );
+
+    return NextResponse.json({
+      ok: true,
+
+      stage:
+        "condition_audited",
+
+      audited_photo_count:
+        validPhotos.length,
+
+      visible_defect_count:
+        defectCount,
+
+      cleaning_issue_count:
+        cleaningCount,
+
+      review_required_count:
+        reviewCount,
+
+      meter_review_count:
+        meterReviewCount,
+
+      caption_change_count:
+        captionChanges,
+    });
+  } catch (error) {
+    console.error(
+      "Condition audit error:",
+      error
+    );
+
+    if (
+      reportId &&
+      currentUserId &&
+      supabaseForError
+    ) {
+      try {
+        await supabaseForError
+          .from(
+            "ai_reports"
+          )
+          .update({
+            status:
+              "condition_audit_error",
+
+            updated_at:
+              new Date().toISOString(),
+          })
+          .eq(
+            "id",
+            reportId
+          )
+          .eq(
+            "created_by",
+            currentUserId
+          );
+      } catch (
+        statusError
+      ) {
+        console.error(
+          "Could not save condition audit error status:",
+          statusError
+        );
+      }
+    }
+
+    return NextResponse.json(
+      {
+        ok: false,
+
+        error:
+          error instanceof Error
+            ? error.message
+            : "Unknown condition audit error.",
+      },
+      {
+        status: 500,
+      }
+    );
+  }
+}

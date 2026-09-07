@@ -1,6 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import {
+  Fragment,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import { supabase } from "../../lib/supabase";
 
 const MONTHS = [
@@ -16,6 +21,21 @@ const MONTHS = [
   "Oct",
   "Nov",
   "Dec",
+];
+
+const MONTH_NAMES = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
 ];
 
 function money(value) {
@@ -58,28 +78,309 @@ function safeDateParts(value) {
   };
 }
 
-function barWidth(value, maximum) {
-  if (!maximum) {
-    return 0;
-  }
+function round2(value) {
+  return Number(Number(value || 0).toFixed(2));
+}
+
+function percentage(part, whole) {
+  if (!whole) return 0;
 
   return Math.max(
-    3,
-    Math.min(
-      100,
-      (Number(value || 0) / maximum) * 100
-    )
+    0,
+    Math.min(100, (Number(part || 0) / Number(whole)) * 100)
   );
 }
+
+/**
+ * Splits one invoice into the money that belongs to us and the money
+ * that belongs to the other company, and works out how much of each
+ * has actually been collected.
+ *
+ * internal_amount  = our share
+ * agency_commission = the other company's share (total - internal_amount)
+ *
+ * When an invoice is only part paid we assume the payment is shared
+ * in the same proportion as the invoice itself.
+ */
+function splitInvoice(invoice) {
+  const total = Number(invoice.total || 0);
+
+  const mine = Number(
+    invoice.internal_amount ?? total
+  );
+
+  const theirs = Number(
+    invoice.agency_commission ??
+      Math.max(0, total - mine)
+  );
+
+  const isPaid = invoice.status === "paid";
+
+  const balance = Math.max(
+    0,
+    Math.min(
+      total,
+      Number(
+        invoice.balance_due ?? (isPaid ? 0 : total)
+      )
+    )
+  );
+
+  const received = Math.max(0, total - balance);
+
+  const collectedRate =
+    total > 0 ? received / total : isPaid ? 1 : 0;
+
+  return {
+    total,
+    mine,
+    theirs,
+    received,
+    outstanding: balance,
+    isSettled: isPaid || balance <= 0,
+    mineReceived: mine * collectedRate,
+    mineOutstanding: mine * (1 - collectedRate),
+    theirsReceived: theirs * collectedRate,
+  };
+}
+
+function emptyBucket() {
+  return {
+    jobs: 0,
+    invoiced: 0,
+    mine: 0,
+    theirs: 0,
+    received: 0,
+    outstanding: 0,
+    mineReceived: 0,
+    mineOutstanding: 0,
+    theirsReceived: 0,
+    unpaidJobs: 0,
+  };
+}
+
+function addToBucket(bucket, split) {
+  bucket.jobs += 1;
+  bucket.invoiced += split.total;
+  bucket.mine += split.mine;
+  bucket.theirs += split.theirs;
+  bucket.received += split.received;
+  bucket.outstanding += split.outstanding;
+  bucket.mineReceived += split.mineReceived;
+  bucket.mineOutstanding += split.mineOutstanding;
+  bucket.theirsReceived += split.theirsReceived;
+
+  if (!split.isSettled) {
+    bucket.unpaidJobs += 1;
+  }
+
+  return bucket;
+}
+
+function roundBucket(bucket) {
+  return {
+    ...bucket,
+    invoiced: round2(bucket.invoiced),
+    mine: round2(bucket.mine),
+    theirs: round2(bucket.theirs),
+    received: round2(bucket.received),
+    outstanding: round2(bucket.outstanding),
+    mineReceived: round2(bucket.mineReceived),
+    mineOutstanding: round2(bucket.mineOutstanding),
+    theirsReceived: round2(bucket.theirsReceived),
+  };
+}
+
+// ============================================================
+// SMALL UI PIECES
+// ============================================================
+
+function Figure({
+  label,
+  value,
+  note,
+  tone = "slate",
+}) {
+  const tones = {
+    slate: "text-slate-900",
+    emerald: "text-emerald-700",
+    violet: "text-violet-700",
+    rose: "text-rose-700",
+  };
+
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white p-5">
+      <p className="text-sm font-semibold text-slate-500">
+        {label}
+      </p>
+
+      <p
+        className={`mt-2 text-3xl font-bold tabular-nums tracking-tight ${
+          tones[tone] || tones.slate
+        }`}
+      >
+        {value}
+      </p>
+
+      {note && (
+        <p className="mt-1.5 text-sm text-slate-500">
+          {note}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function SplitBar({ mine, theirs }) {
+  const total = Number(mine || 0) + Number(theirs || 0);
+  const minePercent = percentage(mine, total);
+  const theirsPercent = 100 - minePercent;
+
+  if (total <= 0) {
+    return (
+      <div className="h-3 rounded-full bg-slate-100" />
+    );
+  }
+
+  return (
+    <div className="flex h-3 overflow-hidden rounded-full bg-slate-100">
+      <div
+        className="bg-emerald-500"
+        style={{ width: `${minePercent}%` }}
+      />
+
+      <div
+        className="bg-violet-500"
+        style={{ width: `${theirsPercent}%` }}
+      />
+    </div>
+  );
+}
+
+function MonthColumns({
+  months,
+  activeMonth,
+  onSelect,
+}) {
+  const maximum = Math.max(
+    1,
+    ...months.map((month) => month.invoiced)
+  );
+
+  return (
+    <div className="flex items-end gap-1.5 sm:gap-2">
+      {months.map((month) => {
+        const isActive =
+          activeMonth === month.monthIndex;
+
+        const isEmpty = month.jobs === 0;
+
+        const height = percentage(
+          month.invoiced,
+          maximum
+        );
+
+        const mineShare = percentage(
+          month.mine,
+          month.invoiced
+        );
+
+        return (
+          <button
+            key={month.monthIndex}
+            type="button"
+            onClick={() => onSelect(month.monthIndex)}
+            aria-pressed={isActive}
+            title={`${MONTH_NAMES[month.monthIndex]} — ${month.jobs} jobs, ${money(
+              month.invoiced
+            )} invoiced`}
+            className={`group flex flex-1 flex-col items-center gap-2 rounded-lg px-0.5 pb-2 pt-3 outline-none transition focus-visible:ring-2 focus-visible:ring-blue-500 ${
+              isActive
+                ? "bg-slate-100"
+                : "hover:bg-slate-50"
+            }`}
+          >
+            <span
+              className={`text-[11px] font-semibold tabular-nums ${
+                isEmpty
+                  ? "text-slate-300"
+                  : "text-slate-600"
+              }`}
+            >
+              {isEmpty
+                ? "—"
+                : compactMoney(month.invoiced)}
+            </span>
+
+            <span className="flex h-32 w-full items-end sm:h-40">
+              <span
+                className="flex w-full flex-col-reverse overflow-hidden rounded-md bg-slate-100"
+                style={{
+                  height: `${Math.max(
+                    isEmpty ? 2 : 6,
+                    height
+                  )}%`,
+                }}
+              >
+                <span
+                  className={
+                    isActive
+                      ? "bg-emerald-500"
+                      : "bg-emerald-400 group-hover:bg-emerald-500"
+                  }
+                  style={{ height: `${mineShare}%` }}
+                />
+
+                <span
+                  className={
+                    isActive
+                      ? "bg-violet-500"
+                      : "bg-violet-400 group-hover:bg-violet-500"
+                  }
+                  style={{
+                    height: `${100 - mineShare}%`,
+                  }}
+                />
+              </span>
+            </span>
+
+            <span
+              className={`text-xs font-semibold ${
+                isActive
+                  ? "text-slate-900"
+                  : "text-slate-500"
+              }`}
+            >
+              {month.month}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// ============================================================
+// PAGE
+// ============================================================
 
 export default function CompanyAnalyticsPage() {
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
   const [invoices, setInvoices] = useState([]);
-  const [chartType, setChartType] = useState("bar");
-  const [chartMetric, setChartMetric] =
-    useState("invoiceTotal");
+
   const [selectedYear, setSelectedYear] =
+    useState("");
+
+  // -1 means every month in the selected year.
+  const [selectedMonth, setSelectedMonth] =
+    useState(-1);
+
+  const [search, setSearch] = useState("");
+
+  const [onlyOwing, setOnlyOwing] = useState(false);
+
+  const [expandedCompany, setExpandedCompany] =
     useState("");
 
   useEffect(() => {
@@ -117,10 +418,7 @@ export default function CompanyAnalyticsPage() {
         );
       }
 
-      const {
-        data,
-        error,
-      } = await supabase
+      const { data, error } = await supabase
         .from("invoices")
         .select(
           `
@@ -128,7 +426,11 @@ export default function CompanyAnalyticsPage() {
             client_id,
             invoice_number,
             issue_date,
+            paid_at,
             total,
+            internal_amount,
+            agency_commission,
+            amount_paid,
             balance_due,
             status,
             client:clients(
@@ -141,9 +443,7 @@ export default function CompanyAnalyticsPage() {
         .eq("business_id", business.id)
         .is("deleted_at", null)
         .neq("status", "cancelled")
-        .order("issue_date", {
-          ascending: true,
-        });
+        .order("issue_date", { ascending: true });
 
       if (error) {
         throw error;
@@ -186,116 +486,6 @@ export default function CompanyAnalyticsPage() {
     }
   }
 
-  const companyRows = useMemo(() => {
-    const companies = new Map();
-
-    function ensureCompany(clientId, client) {
-      const key =
-        clientId ||
-        `unknown-${clientName(client)}`;
-
-      if (!companies.has(key)) {
-        companies.set(key, {
-          key,
-          name: clientName(client),
-          completedJobs: 0,
-          invoiceCount: 0,
-          totalInvoiced: 0,
-          totalPaid: 0,
-          totalOutstanding: 0,
-          unpaidInvoiceCount: 0,
-        });
-      }
-
-      return companies.get(key);
-    }
-
-    for (const invoice of invoices) {
-      const company = ensureCompany(
-        invoice.client_id,
-        invoice.client
-      );
-
-      const total = Number(invoice.total || 0);
-      const balance = Number(
-        invoice.balance_due ??
-          (invoice.status === "paid"
-            ? 0
-            : total)
-      );
-
-      company.completedJobs += 1;
-      company.invoiceCount += 1;
-      company.totalInvoiced += total;
-      company.totalOutstanding += Math.max(
-        0,
-        balance
-      );
-      company.totalPaid += Math.max(
-        0,
-        total - balance
-      );
-
-      if (
-        invoice.status !== "paid" &&
-        balance > 0
-      ) {
-        company.unpaidInvoiceCount += 1;
-      }
-    }
-
-    return Array.from(companies.values())
-      .map((company) => ({
-        ...company,
-        totalInvoiced: Number(
-          company.totalInvoiced.toFixed(2)
-        ),
-        totalPaid: Number(
-          company.totalPaid.toFixed(2)
-        ),
-        totalOutstanding: Number(
-          company.totalOutstanding.toFixed(2)
-        ),
-      }))
-      .sort(
-        (first, second) =>
-          second.totalOutstanding -
-            first.totalOutstanding ||
-          second.completedJobs -
-            first.completedJobs ||
-          first.name.localeCompare(second.name)
-      );
-  }, [invoices]);
-
-  const totals = useMemo(
-    () =>
-      companyRows.reduce(
-        (result, company) => {
-          result.companies += 1;
-          result.completedJobs +=
-            company.completedJobs;
-          result.invoices +=
-            company.invoiceCount;
-          result.invoiced +=
-            company.totalInvoiced;
-          result.paid += company.totalPaid;
-          result.outstanding +=
-            company.totalOutstanding;
-
-          return result;
-        },
-        {
-          companies: 0,
-          completedJobs: 0,
-          invoices: 0,
-          invoiced: 0,
-          paid: 0,
-          outstanding: 0,
-        }
-      ),
-    [companyRows]
-  );
-
   const availableYears = useMemo(() => {
     return Array.from(
       new Set(
@@ -309,918 +499,916 @@ export default function CompanyAnalyticsPage() {
     ).sort((first, second) => second - first);
   }, [invoices]);
 
-  const monthlyData = useMemo(() => {
+  // Every invoice in the chosen year, whatever month.
+  const yearInvoices = useMemo(() => {
     const year = Number(selectedYear);
 
-    const months = MONTHS.map(
-      (month, monthIndex) => ({
-        month,
-        monthIndex,
-        invoiceCount: 0,
-        invoiceTotal: 0,
-        paidTotal: 0,
-        outstandingTotal: 0,
-      })
+    return invoices.filter((invoice) => {
+      const date = safeDateParts(invoice.issue_date);
+
+      return date && date.year === year;
+    });
+  }, [invoices, selectedYear]);
+
+  // Twelve months of the chosen year, always all twelve
+  // so the shape of the year stays readable.
+  const monthlyData = useMemo(() => {
+    const months = MONTHS.map((month, monthIndex) => ({
+      month,
+      monthIndex,
+      ...emptyBucket(),
+    }));
+
+    for (const invoice of yearInvoices) {
+      const date = safeDateParts(invoice.issue_date);
+      const bucket = months[date.monthIndex];
+
+      if (!bucket) continue;
+
+      addToBucket(bucket, splitInvoice(invoice));
+    }
+
+    return months.map(roundBucket);
+  }, [yearInvoices]);
+
+  // The invoices the filters actually select.
+  const filteredInvoices = useMemo(() => {
+    return yearInvoices.filter((invoice) => {
+      const date = safeDateParts(invoice.issue_date);
+
+      if (
+        selectedMonth >= 0 &&
+        date.monthIndex !== selectedMonth
+      ) {
+        return false;
+      }
+
+      if (search.trim()) {
+        const name = clientName(
+          invoice.client
+        ).toLowerCase();
+
+        if (
+          !name.includes(
+            search.trim().toLowerCase()
+          )
+        ) {
+          return false;
+        }
+      }
+
+      return true;
+    });
+  }, [yearInvoices, selectedMonth, search]);
+
+  const totals = useMemo(() => {
+    const bucket = emptyBucket();
+
+    for (const invoice of filteredInvoices) {
+      addToBucket(bucket, splitInvoice(invoice));
+    }
+
+    return roundBucket(bucket);
+  }, [filteredInvoices]);
+
+  const companyRows = useMemo(() => {
+    const companies = new Map();
+
+    for (const invoice of filteredInvoices) {
+      const key =
+        invoice.client_id ||
+        `unknown-${clientName(invoice.client)}`;
+
+      if (!companies.has(key)) {
+        companies.set(key, {
+          key,
+          name: clientName(invoice.client),
+          monthMap: new Map(),
+          ...emptyBucket(),
+        });
+      }
+
+      const company = companies.get(key);
+      const split = splitInvoice(invoice);
+
+      addToBucket(company, split);
+
+      // Keep the same invoice in a per-month bucket so the
+      // row can be opened to show which months are unpaid.
+      const date = safeDateParts(invoice.issue_date);
+
+      if (date) {
+        if (!company.monthMap.has(date.monthIndex)) {
+          company.monthMap.set(date.monthIndex, {
+            monthIndex: date.monthIndex,
+            ...emptyBucket(),
+          });
+        }
+
+        addToBucket(
+          company.monthMap.get(date.monthIndex),
+          split
+        );
+      }
+    }
+
+    let rows = Array.from(companies.values()).map(
+      (company) => {
+        const { monthMap, ...rest } = company;
+
+        return {
+          ...roundBucket(rest),
+          months: Array.from(monthMap.values())
+            .map(roundBucket)
+            .sort(
+              (first, second) =>
+                first.monthIndex - second.monthIndex
+            ),
+        };
+      }
     );
 
-    for (const invoice of invoices) {
-      const date = safeDateParts(
-        invoice.issue_date
-      );
-
-      if (!date || date.year !== year) {
-        continue;
-      }
-
-      const month = months[date.monthIndex];
-
-      if (!month) {
-        continue;
-      }
-
-      const total = Number(invoice.total || 0);
-      const balance = Number(
-        invoice.balance_due ??
-          (invoice.status === "paid"
-            ? 0
-            : total)
-      );
-
-      month.invoiceCount += 1;
-      month.invoiceTotal += total;
-      month.paidTotal += Math.max(
-        0,
-        total - balance
-      );
-      month.outstandingTotal += Math.max(
-        0,
-        balance
+    if (onlyOwing) {
+      rows = rows.filter(
+        (row) => row.outstanding > 0
       );
     }
 
-    return months.map((month) => ({
-      ...month,
-      invoiceTotal: Number(
-        month.invoiceTotal.toFixed(2)
-      ),
-      paidTotal: Number(
-        month.paidTotal.toFixed(2)
-      ),
-      outstandingTotal: Number(
-        month.outstandingTotal.toFixed(2)
-      ),
-    }));
-  }, [invoices, selectedYear]);
+    return rows.sort(
+      (first, second) =>
+        second.outstanding - first.outstanding ||
+        second.mine - first.mine ||
+        first.name.localeCompare(second.name)
+    );
+  }, [filteredInvoices, onlyOwing]);
 
-  const selectedYearTotals = useMemo(
-    () =>
-      monthlyData.reduce(
-        (result, month) => {
-          result.invoiceCount +=
-            month.invoiceCount;
-          result.invoiceTotal +=
-            month.invoiceTotal;
-          result.paidTotal +=
-            month.paidTotal;
-          result.outstandingTotal +=
-            month.outstandingTotal;
+  const periodLabel =
+    selectedMonth >= 0
+      ? `${MONTH_NAMES[selectedMonth]} ${selectedYear}`
+      : String(selectedYear);
 
-          return result;
-        },
-        {
-          invoiceCount: 0,
-          invoiceTotal: 0,
-          paidTotal: 0,
-          outstandingTotal: 0,
-        }
-      ),
-    [monthlyData]
+  const owingCompanies = companyRows.filter(
+    (row) => row.outstanding > 0
+  ).length;
+
+  const collectedPercent = percentage(
+    totals.received,
+    totals.invoiced
   );
 
-  const maximumJobs = Math.max(
-    0,
-    ...companyRows.map(
-      (company) => company.completedJobs
-    )
-  );
-
-  const maximumOutstanding = Math.max(
-    0,
-    ...companyRows.map(
-      (company) =>
-        company.totalOutstanding
-    )
-  );
+  if (loading) {
+    return (
+      <p className="text-slate-500">
+        Loading company analytics...
+      </p>
+    );
+  }
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-4">
+      <header className="flex flex-col justify-between gap-4 xl:flex-row xl:items-end">
         <div>
-          <h1 className="text-3xl font-bold text-slate-900">
-            Company Analytics
+          <h1 className="text-4xl font-bold tracking-tight text-slate-900">
+            Company analytics
           </h1>
 
-          <p className="mt-2 max-w-4xl text-slate-600">
-            Each non-cancelled invoice counts as one
-            completed job. Compare companies and review
-            invoice totals month by month.
+          <p className="mt-2 max-w-2xl text-slate-500">
+            What each company owes you, what they have
+            paid, and how the money splits between you
+            and the other company.
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={loadAnalytics}
-          disabled={loading}
-          className="rounded-lg border border-slate-300 bg-white px-4 py-2 font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-50"
-        >
-          {loading
-            ? "Refreshing..."
-            : "Refresh"}
-        </button>
-      </div>
+        <div className="flex flex-wrap items-end gap-3">
+          <label className="block">
+            <span className="mb-1.5 block text-sm font-semibold text-slate-600">
+              Year
+            </span>
+
+            <select
+              value={selectedYear}
+              onChange={(event) => {
+                setSelectedYear(event.target.value);
+                setSelectedMonth(-1);
+              }}
+              className="rounded-lg border border-slate-300 bg-white px-4 py-2.5 font-semibold outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+            >
+              {availableYears.length === 0 && (
+                <option value={selectedYear}>
+                  {selectedYear}
+                </option>
+              )}
+
+              {availableYears.map((year) => (
+                <option key={year} value={year}>
+                  {year}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="block">
+            <span className="mb-1.5 block text-sm font-semibold text-slate-600">
+              Month
+            </span>
+
+            <select
+              value={selectedMonth}
+              onChange={(event) =>
+                setSelectedMonth(
+                  Number(event.target.value)
+                )
+              }
+              className="rounded-lg border border-slate-300 bg-white px-4 py-2.5 font-semibold outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+            >
+              <option value={-1}>
+                All months
+              </option>
+
+              {MONTH_NAMES.map((name, index) => (
+                <option key={name} value={index}>
+                  {name}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="block">
+            <span className="mb-1.5 block text-sm font-semibold text-slate-600">
+              Company
+            </span>
+
+            <input
+              type="search"
+              value={search}
+              onChange={(event) =>
+                setSearch(event.target.value)
+              }
+              placeholder="Search companies"
+              className="w-48 rounded-lg border border-slate-300 bg-white px-4 py-2.5 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+            />
+          </label>
+        </div>
+      </header>
 
       {message && (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-red-700">
+        <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
           {message}
         </div>
       )}
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
-        <SummaryCard
-          label="Companies"
-          value={totals.companies}
-        />
+      {/* ---------------------------------------------- */}
+      {/* HEADLINE SPLIT                                  */}
+      {/* ---------------------------------------------- */}
 
-        <SummaryCard
-          label="Completed jobs"
-          value={totals.completedJobs}
-        />
+      <section className="rounded-2xl border border-slate-200 bg-white p-6">
+        <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-baseline">
+          <h2 className="text-lg font-bold text-slate-900">
+            Where the money went in {periodLabel}
+          </h2>
 
-        <SummaryCard
-          label="Invoice records"
-          value={totals.invoices}
-        />
-
-        <SummaryCard
-          label="Total invoiced"
-          value={money(totals.invoiced)}
-        />
-
-        <SummaryCard
-          label="Paid"
-          value={money(totals.paid)}
-          valueClass="text-green-700"
-        />
-
-        <SummaryCard
-          label="Still owed"
-          value={money(totals.outstanding)}
-          valueClass="text-red-700"
-        />
-      </div>
-
-      {loading ? (
-        <div className="rounded-xl border border-slate-200 bg-white p-10 text-center text-slate-500 shadow-sm">
-          Loading company analytics...
+          <p className="text-sm text-slate-500 tabular-nums">
+            {money(totals.invoiced)} invoiced across{" "}
+            {totals.jobs}{" "}
+            {totals.jobs === 1 ? "job" : "jobs"}
+          </p>
         </div>
-      ) : (
-        <>
-          <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-            <div className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-200 px-5 py-4">
-              <div>
-                <h2 className="text-xl font-bold text-slate-900">
-                  Monthly invoice performance
-                </h2>
 
-                <p className="mt-1 text-sm text-slate-500">
-                  Calendar months are grouped by their
-                  real invoice dates, including months
-                  ending on the 28th, 29th, 30th or 31st.
-                </p>
-              </div>
+        <div className="mt-5">
+          <SplitBar
+            mine={totals.mine}
+            theirs={totals.theirs}
+          />
+        </div>
 
-              <div className="flex flex-wrap items-center gap-3">
-                <label className="text-sm font-semibold text-slate-700">
-                  Year
-                  <select
-                    value={selectedYear}
-                    onChange={(event) =>
-                      setSelectedYear(
-                        event.target.value
+        <div className="mt-5 grid gap-5 sm:grid-cols-2">
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />
+
+              <span className="text-sm font-semibold text-slate-600">
+                Yours
+              </span>
+            </div>
+
+            <p className="mt-1.5 text-3xl font-bold tabular-nums text-emerald-700">
+              {money(totals.mine)}
+            </p>
+
+            <p className="mt-1 text-sm text-slate-500 tabular-nums">
+              {percentage(
+                totals.mine,
+                totals.invoiced
+              ).toFixed(0)}
+              % of everything invoiced
+            </p>
+          </div>
+
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="h-2.5 w-2.5 rounded-full bg-violet-500" />
+
+              <span className="text-sm font-semibold text-slate-600">
+                The other company
+              </span>
+            </div>
+
+            <p className="mt-1.5 text-3xl font-bold tabular-nums text-violet-700">
+              {money(totals.theirs)}
+            </p>
+
+            <p className="mt-1 text-sm text-slate-500 tabular-nums">
+              {percentage(
+                totals.theirs,
+                totals.invoiced
+              ).toFixed(0)}
+              % of everything invoiced
+            </p>
+          </div>
+        </div>
+      </section>
+
+      {/* ---------------------------------------------- */}
+      {/* FIGURES                                         */}
+      {/* ---------------------------------------------- */}
+
+      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <Figure
+          label="Your money received"
+          value={money(totals.mineReceived)}
+          note={`${money(
+            totals.mineOutstanding
+          )} still to come in`}
+          tone="emerald"
+        />
+
+        <Figure
+          label="Still owed to you"
+          value={money(totals.outstanding)}
+          note={
+            owingCompanies === 0
+              ? "Everything is settled"
+              : `${owingCompanies} ${
+                  owingCompanies === 1
+                    ? "company owes"
+                    : "companies owe"
+                } you`
+          }
+          tone="rose"
+        />
+
+        <Figure
+          label="Paid"
+          value={money(totals.received)}
+          note={`${collectedPercent.toFixed(
+            0
+          )}% of what you invoiced`}
+        />
+
+        <Figure
+          label="Completed jobs"
+          value={totals.jobs}
+          note={`${totals.unpaidJobs} still unpaid`}
+        />
+      </section>
+
+      {/* ---------------------------------------------- */}
+      {/* MONTH PICKER CHART                              */}
+      {/* ---------------------------------------------- */}
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-6">
+        <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
+          <div>
+            <h2 className="text-lg font-bold text-slate-900">
+              {selectedYear} month by month
+            </h2>
+
+            <p className="mt-1 text-sm text-slate-500">
+              Pick a month to filter everything on
+              this page.
+            </p>
+          </div>
+
+          {selectedMonth >= 0 && (
+            <button
+              type="button"
+              onClick={() => setSelectedMonth(-1)}
+              className="self-start rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+            >
+              Show all months
+            </button>
+          )}
+        </div>
+
+        <div className="mt-5">
+          <MonthColumns
+            months={monthlyData}
+            activeMonth={selectedMonth}
+            onSelect={(monthIndex) =>
+              setSelectedMonth(
+                selectedMonth === monthIndex
+                  ? -1
+                  : monthIndex
+              )
+            }
+          />
+        </div>
+      </section>
+
+      {/* ---------------------------------------------- */}
+      {/* MONTHLY TABLE                                   */}
+      {/* ---------------------------------------------- */}
+
+      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+        <div className="border-b border-slate-200 p-5">
+          <h2 className="text-lg font-bold text-slate-900">
+            Owed and paid by month
+          </h2>
+
+          <p className="mt-1 text-sm text-slate-500">
+            Grouped by the date each invoice was
+            issued.
+          </p>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[820px] text-left">
+            <thead className="bg-slate-50 text-sm text-slate-500">
+              <tr>
+                <th className="px-4 py-3 font-semibold">
+                  Month
+                </th>
+                <th className="px-4 py-3 text-right font-semibold">
+                  Jobs
+                </th>
+                <th className="px-4 py-3 text-right font-semibold">
+                  Invoiced
+                </th>
+                <th className="px-4 py-3 text-right font-semibold">
+                  Yours
+                </th>
+                <th className="px-4 py-3 text-right font-semibold">
+                  Other company
+                </th>
+                <th className="px-4 py-3 text-right font-semibold">
+                  Paid
+                </th>
+                <th className="px-4 py-3 text-right font-semibold">
+                  Still owed
+                </th>
+              </tr>
+            </thead>
+
+            <tbody>
+              {monthlyData.map((month) => {
+                const isActive =
+                  selectedMonth === month.monthIndex;
+
+                const isEmpty = month.jobs === 0;
+
+                return (
+                  <tr
+                    key={month.monthIndex}
+                    onClick={() =>
+                      setSelectedMonth(
+                        isActive
+                          ? -1
+                          : month.monthIndex
                       )
                     }
-                    className="ml-2 rounded-lg border border-slate-300 bg-white px-3 py-2 font-normal text-slate-900"
-                  >
-                    {availableYears.length === 0 ? (
-                      <option
-                        value={selectedYear}
-                      >
-                        {selectedYear}
-                      </option>
-                    ) : (
-                      availableYears.map((year) => (
-                        <option
-                          key={year}
-                          value={year}
-                        >
-                          {year}
-                        </option>
-                      ))
-                    )}
-                  </select>
-                </label>
-
-                <div className="inline-flex rounded-lg border border-slate-300 bg-white p-1">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setChartType("bar")
-                    }
-                    className={`rounded-md px-3 py-1.5 text-sm font-semibold ${
-                      chartType === "bar"
-                        ? "bg-slate-900 text-white"
-                        : "text-slate-600 hover:bg-slate-100"
+                    className={`cursor-pointer border-t border-slate-200 tabular-nums ${
+                      isActive
+                        ? "bg-blue-50"
+                        : "hover:bg-slate-50"
+                    } ${
+                      isEmpty ? "text-slate-400" : ""
                     }`}
                   >
-                    Bar chart
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setChartType("line")
-                    }
-                    className={`rounded-md px-3 py-1.5 text-sm font-semibold ${
-                      chartType === "line"
-                        ? "bg-slate-900 text-white"
-                        : "text-slate-600 hover:bg-slate-100"
-                    }`}
-                  >
-                    Line chart
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            <div className="grid gap-3 border-b border-slate-200 bg-slate-50 p-4 sm:grid-cols-2 xl:grid-cols-4">
-              <MiniCard
-                label={`${selectedYear} invoices`}
-                value={
-                  selectedYearTotals.invoiceCount
-                }
-              />
-
-              <MiniCard
-                label={`${selectedYear} invoiced`}
-                value={money(
-                  selectedYearTotals.invoiceTotal
-                )}
-              />
-
-              <MiniCard
-                label={`${selectedYear} paid`}
-                value={money(
-                  selectedYearTotals.paidTotal
-                )}
-                valueClass="text-green-700"
-              />
-
-              <MiniCard
-                label={`${selectedYear} still owed`}
-                value={money(
-                  selectedYearTotals.outstandingTotal
-                )}
-                valueClass="text-red-700"
-              />
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2 px-5 pt-5">
-              <span className="mr-2 text-sm font-semibold text-slate-700">
-                Show:
-              </span>
-
-              <MetricButton
-                active={
-                  chartMetric === "invoiceTotal"
-                }
-                onClick={() =>
-                  setChartMetric("invoiceTotal")
-                }
-              >
-                Invoice value
-              </MetricButton>
-
-              <MetricButton
-                active={
-                  chartMetric === "invoiceCount"
-                }
-                onClick={() =>
-                  setChartMetric("invoiceCount")
-                }
-              >
-                Number of invoices
-              </MetricButton>
-
-              <MetricButton
-                active={
-                  chartMetric === "paidTotal"
-                }
-                onClick={() =>
-                  setChartMetric("paidTotal")
-                }
-              >
-                Paid
-              </MetricButton>
-
-              <MetricButton
-                active={
-                  chartMetric ===
-                  "outstandingTotal"
-                }
-                onClick={() =>
-                  setChartMetric(
-                    "outstandingTotal"
-                  )
-                }
-              >
-                Still owed
-              </MetricButton>
-            </div>
-
-            <div className="p-4 sm:p-5">
-              <MonthlyChart
-                data={monthlyData}
-                type={chartType}
-                metric={chartMetric}
-              />
-            </div>
-
-            <div className="overflow-x-auto border-t border-slate-200">
-              <table className="w-full min-w-[900px] text-left text-sm">
-                <thead className="bg-slate-100 text-xs uppercase tracking-wide text-slate-600">
-                  <tr>
-                    <th className="px-4 py-3">
-                      Month
-                    </th>
-                    <th className="px-4 py-3 text-right">
-                      Invoices
-                    </th>
-                    <th className="px-4 py-3 text-right">
-                      Total invoiced
-                    </th>
-                    <th className="px-4 py-3 text-right">
-                      Paid
-                    </th>
-                    <th className="px-4 py-3 text-right">
-                      Still owed
-                    </th>
-                  </tr>
-                </thead>
-
-                <tbody>
-                  {monthlyData.map(
-                    (month, index) => (
-                      <tr
-                        key={month.month}
-                        className={
-                          index % 2 === 0
-                            ? "bg-white"
-                            : "bg-slate-50"
-                        }
-                      >
-                        <td className="border-t border-slate-200 px-4 py-3 font-semibold">
-                          {month.month}{" "}
-                          {selectedYear}
-                        </td>
-
-                        <td className="border-t border-slate-200 px-4 py-3 text-right">
-                          {month.invoiceCount}
-                        </td>
-
-                        <td className="border-t border-slate-200 px-4 py-3 text-right font-semibold">
-                          {money(
-                            month.invoiceTotal
-                          )}
-                        </td>
-
-                        <td className="border-t border-slate-200 px-4 py-3 text-right font-semibold text-green-700">
-                          {money(
-                            month.paidTotal
-                          )}
-                        </td>
-
-                        <td className="border-t border-slate-200 px-4 py-3 text-right font-semibold text-red-700">
-                          {money(
-                            month.outstandingTotal
-                          )}
-                        </td>
-                      </tr>
-                    )
-                  )}
-                </tbody>
-
-                <tfoot className="bg-slate-100 font-bold">
-                  <tr>
-                    <td className="border-t border-slate-300 px-4 py-3">
-                      Total {selectedYear}
-                    </td>
-
-                    <td className="border-t border-slate-300 px-4 py-3 text-right">
+                    <td className="px-4 py-3 font-semibold text-slate-900">
                       {
-                        selectedYearTotals.invoiceCount
+                        MONTH_NAMES[
+                          month.monthIndex
+                        ]
                       }
                     </td>
 
-                    <td className="border-t border-slate-300 px-4 py-3 text-right">
-                      {money(
-                        selectedYearTotals.invoiceTotal
-                      )}
+                    <td className="px-4 py-3 text-right">
+                      {month.jobs || "—"}
                     </td>
 
-                    <td className="border-t border-slate-300 px-4 py-3 text-right text-green-700">
-                      {money(
-                        selectedYearTotals.paidTotal
-                      )}
+                    <td className="px-4 py-3 text-right font-semibold">
+                      {isEmpty
+                        ? "—"
+                        : money(month.invoiced)}
                     </td>
 
-                    <td className="border-t border-slate-300 px-4 py-3 text-right text-red-700">
-                      {money(
-                        selectedYearTotals.outstandingTotal
-                      )}
+                    <td className="px-4 py-3 text-right font-semibold text-emerald-700">
+                      {isEmpty
+                        ? "—"
+                        : money(month.mine)}
+                    </td>
+
+                    <td className="px-4 py-3 text-right text-violet-700">
+                      {isEmpty
+                        ? "—"
+                        : money(month.theirs)}
+                    </td>
+
+                    <td className="px-4 py-3 text-right">
+                      {isEmpty
+                        ? "—"
+                        : money(month.received)}
+                    </td>
+
+                    <td
+                      className={`px-4 py-3 text-right font-semibold ${
+                        month.outstanding > 0
+                          ? "text-rose-700"
+                          : "text-slate-400"
+                      }`}
+                    >
+                      {isEmpty
+                        ? "—"
+                        : money(month.outstanding)}
                     </td>
                   </tr>
-                </tfoot>
-              </table>
-            </div>
-          </section>
+                );
+              })}
+            </tbody>
 
-          <div className="grid gap-6 xl:grid-cols-2">
-            <CompanyBarCard
-              title="Completed jobs by agent or company"
-              rows={companyRows}
-              valueKey="completedJobs"
-              maximum={maximumJobs}
-              valueFormatter={(value) =>
-                `${value} job${
-                  value === 1 ? "" : "s"
-                }`
-              }
-              barClass="bg-blue-600"
-            />
+            <tfoot>
+              <tr className="border-t-2 border-slate-300 bg-slate-50 font-bold tabular-nums">
+                <td className="px-4 py-3">
+                  {selectedYear} total
+                </td>
 
-            <CompanyBarCard
-              title="Outstanding money by company"
-              rows={companyRows}
-              valueKey="totalOutstanding"
-              maximum={maximumOutstanding}
-              valueFormatter={money}
-              barClass="bg-red-500"
-            />
-          </div>
+                <td className="px-4 py-3 text-right">
+                  {monthlyData.reduce(
+                    (sum, month) => sum + month.jobs,
+                    0
+                  )}
+                </td>
 
-          <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-            <div className="border-b border-slate-200 px-5 py-4">
-              <h2 className="text-xl font-bold text-slate-900">
-                Company payment breakdown
-              </h2>
-
-              <p className="mt-1 text-sm text-slate-500">
-                Sorted by the largest outstanding
-                balance.
-              </p>
-            </div>
-
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[1000px] text-left text-sm">
-                <thead className="bg-slate-100 text-xs uppercase tracking-wide text-slate-600">
-                  <tr>
-                    <th className="px-4 py-3">
-                      Agent / company
-                    </th>
-                    <th className="px-4 py-3 text-right">
-                      Completed jobs
-                    </th>
-                    <th className="px-4 py-3 text-right">
-                      Invoices
-                    </th>
-                    <th className="px-4 py-3 text-right">
-                      Total invoiced
-                    </th>
-                    <th className="px-4 py-3 text-right">
-                      Paid
-                    </th>
-                    <th className="px-4 py-3 text-right">
-                      Still owed
-                    </th>
-                    <th className="px-4 py-3 text-right">
-                      Unpaid invoices
-                    </th>
-                  </tr>
-                </thead>
-
-                <tbody>
-                  {companyRows.map(
-                    (company, index) => (
-                      <tr
-                        key={company.key}
-                        className={
-                          index % 2 === 0
-                            ? "bg-white"
-                            : "bg-slate-50"
-                        }
-                      >
-                        <td className="border-t border-slate-200 px-4 py-3 font-semibold">
-                          {company.name}
-                        </td>
-
-                        <td className="border-t border-slate-200 px-4 py-3 text-right">
-                          {
-                            company.completedJobs
-                          }
-                        </td>
-
-                        <td className="border-t border-slate-200 px-4 py-3 text-right">
-                          {company.invoiceCount}
-                        </td>
-
-                        <td className="border-t border-slate-200 px-4 py-3 text-right font-semibold">
-                          {money(
-                            company.totalInvoiced
-                          )}
-                        </td>
-
-                        <td className="border-t border-slate-200 px-4 py-3 text-right font-semibold text-green-700">
-                          {money(
-                            company.totalPaid
-                          )}
-                        </td>
-
-                        <td className="border-t border-slate-200 px-4 py-3 text-right font-bold text-red-700">
-                          {money(
-                            company.totalOutstanding
-                          )}
-                        </td>
-
-                        <td className="border-t border-slate-200 px-4 py-3 text-right">
-                          {
-                            company.unpaidInvoiceCount
-                          }
-                        </td>
-                      </tr>
+                <td className="px-4 py-3 text-right">
+                  {money(
+                    monthlyData.reduce(
+                      (sum, month) =>
+                        sum + month.invoiced,
+                      0
                     )
                   )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
+                </td>
 
-function SummaryCard({
-  label,
-  value,
-  valueClass = "text-slate-900",
-}) {
-  return (
-    <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-      <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-        {label}
-      </div>
-
-      <div
-        className={`mt-2 text-2xl font-bold ${valueClass}`}
-      >
-        {value}
-      </div>
-    </div>
-  );
-}
-
-function MiniCard({
-  label,
-  value,
-  valueClass = "text-slate-900",
-}) {
-  return (
-    <div className="rounded-lg border border-slate-200 bg-white px-4 py-3">
-      <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-        {label}
-      </div>
-
-      <div
-        className={`mt-1 text-lg font-bold ${valueClass}`}
-      >
-        {value}
-      </div>
-    </div>
-  );
-}
-
-function MetricButton({
-  active,
-  onClick,
-  children,
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`rounded-full border px-3 py-1.5 text-sm font-semibold ${
-        active
-          ? "border-blue-600 bg-blue-50 text-blue-700"
-          : "border-slate-300 bg-white text-slate-600 hover:bg-slate-50"
-      }`}
-    >
-      {children}
-    </button>
-  );
-}
-
-function MonthlyChart({
-  data,
-  type,
-  metric,
-}) {
-  const width = 960;
-  const height = 360;
-  const padding = {
-    top: 28,
-    right: 24,
-    bottom: 52,
-    left: 82,
-  };
-
-  const innerWidth =
-    width - padding.left - padding.right;
-  const innerHeight =
-    height - padding.top - padding.bottom;
-
-  const values = data.map(
-    (month) => Number(month[metric] || 0)
-  );
-
-  const maximum = Math.max(1, ...values);
-  const segmentWidth =
-    innerWidth / data.length;
-
-  const yPosition = (value) =>
-    padding.top +
-    innerHeight -
-    (Number(value || 0) / maximum) *
-      innerHeight;
-
-  const linePoints = data
-    .map((month, index) => {
-      const x =
-        padding.left +
-        segmentWidth * index +
-        segmentWidth / 2;
-
-      return `${x},${yPosition(
-        month[metric]
-      )}`;
-    })
-    .join(" ");
-
-  const ticks = Array.from(
-    { length: 5 },
-    (_, index) =>
-      (maximum / 4) * index
-  );
-
-  const formatter =
-    metric === "invoiceCount"
-      ? (value) =>
-          Math.round(value).toLocaleString(
-            "en-GB"
-          )
-      : compactMoney;
-
-  return (
-    <div className="w-full overflow-x-auto">
-      <svg
-        viewBox={`0 0 ${width} ${height}`}
-        role="img"
-        aria-label={`Monthly ${
-          type === "bar"
-            ? "bar"
-            : "line"
-        } chart`}
-        className="min-w-[760px] w-full"
-      >
-        {ticks.map((tick) => {
-          const y = yPosition(tick);
-
-          return (
-            <g key={tick}>
-              <line
-                x1={padding.left}
-                y1={y}
-                x2={
-                  width - padding.right
-                }
-                y2={y}
-                stroke="#e2e8f0"
-                strokeWidth="1"
-              />
-
-              <text
-                x={padding.left - 12}
-                y={y + 4}
-                textAnchor="end"
-                fontSize="12"
-                fill="#64748b"
-              >
-                {formatter(tick)}
-              </text>
-            </g>
-          );
-        })}
-
-        {type === "bar" ? (
-          data.map((month, index) => {
-            const value = Number(
-              month[metric] || 0
-            );
-
-            const x =
-              padding.left +
-              segmentWidth * index +
-              segmentWidth * 0.18;
-
-            const y = yPosition(value);
-            const barHeight =
-              padding.top +
-              innerHeight -
-              y;
-
-            return (
-              <g key={month.month}>
-                <rect
-                  x={x}
-                  y={y}
-                  width={
-                    segmentWidth * 0.64
-                  }
-                  height={Math.max(
-                    0,
-                    barHeight
+                <td className="px-4 py-3 text-right text-emerald-700">
+                  {money(
+                    monthlyData.reduce(
+                      (sum, month) =>
+                        sum + month.mine,
+                      0
+                    )
                   )}
-                  rx="5"
-                  fill="#2563eb"
-                >
-                  <title>
-                    {month.month}:{" "}
-                    {metric ===
-                    "invoiceCount"
-                      ? `${value} invoice${
-                          value === 1
-                            ? ""
-                            : "s"
-                        }`
-                      : money(value)}
-                  </title>
-                </rect>
-              </g>
-            );
-          })
-        ) : (
-          <>
-            <polyline
-              points={linePoints}
-              fill="none"
-              stroke="#2563eb"
-              strokeWidth="4"
-              strokeLinecap="round"
-              strokeLinejoin="round"
+                </td>
+
+                <td className="px-4 py-3 text-right text-violet-700">
+                  {money(
+                    monthlyData.reduce(
+                      (sum, month) =>
+                        sum + month.theirs,
+                      0
+                    )
+                  )}
+                </td>
+
+                <td className="px-4 py-3 text-right">
+                  {money(
+                    monthlyData.reduce(
+                      (sum, month) =>
+                        sum + month.received,
+                      0
+                    )
+                  )}
+                </td>
+
+                <td className="px-4 py-3 text-right text-rose-700">
+                  {money(
+                    monthlyData.reduce(
+                      (sum, month) =>
+                        sum + month.outstanding,
+                      0
+                    )
+                  )}
+                </td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </section>
+
+      {/* ---------------------------------------------- */}
+      {/* COMPANY TABLE                                   */}
+      {/* ---------------------------------------------- */}
+
+      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+        <div className="flex flex-col justify-between gap-3 border-b border-slate-200 p-5 sm:flex-row sm:items-center">
+          <div>
+            <h2 className="text-lg font-bold text-slate-900">
+              Companies in {periodLabel}
+            </h2>
+
+            <p className="mt-1 text-sm text-slate-500">
+              Sorted by what they still owe you.
+            </p>
+          </div>
+
+          <label className="flex items-center gap-2.5 self-start">
+            <input
+              type="checkbox"
+              checked={onlyOwing}
+              onChange={(event) =>
+                setOnlyOwing(event.target.checked)
+              }
+              className="h-4 w-4 rounded border-slate-300"
             />
 
-            {data.map(
-              (month, index) => {
-                const value = Number(
-                  month[metric] || 0
-                );
+            <span className="text-sm font-semibold text-slate-700">
+              Only companies that owe me
+            </span>
+          </label>
+        </div>
 
-                const x =
-                  padding.left +
-                  segmentWidth * index +
-                  segmentWidth / 2;
-
-                const y =
-                  yPosition(value);
-
-                return (
-                  <circle
-                    key={month.month}
-                    cx={x}
-                    cy={y}
-                    r="5"
-                    fill="#ffffff"
-                    stroke="#2563eb"
-                    strokeWidth="3"
-                  >
-                    <title>
-                      {month.month}:{" "}
-                      {metric ===
-                      "invoiceCount"
-                        ? `${value} invoice${
-                            value === 1
-                              ? ""
-                              : "s"
-                          }`
-                        : money(value)}
-                    </title>
-                  </circle>
-                );
-              }
-            )}
-          </>
-        )}
-
-        {data.map((month, index) => {
-          const x =
-            padding.left +
-            segmentWidth * index +
-            segmentWidth / 2;
-
-          return (
-            <text
-              key={month.month}
-              x={x}
-              y={
-                height -
-                padding.bottom +
-                25
-              }
-              textAnchor="middle"
-              fontSize="12"
-              fontWeight="600"
-              fill="#475569"
-            >
-              {month.month}
-            </text>
-          );
-        })}
-
-        <line
-          x1={padding.left}
-          y1={padding.top + innerHeight}
-          x2={width - padding.right}
-          y2={padding.top + innerHeight}
-          stroke="#94a3b8"
-          strokeWidth="1"
-        />
-      </svg>
-    </div>
-  );
-}
-
-function CompanyBarCard({
-  title,
-  rows,
-  valueKey,
-  maximum,
-  valueFormatter,
-  barClass,
-}) {
-  return (
-    <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-      <h2 className="text-xl font-bold text-slate-900">
-        {title}
-      </h2>
-
-      <div className="mt-5 space-y-4">
-        {rows.map((row) => (
-          <div key={row.key}>
-            <div className="flex items-end justify-between gap-4 text-sm">
-              <span className="min-w-0 truncate font-medium text-slate-700">
-                {row.name}
-              </span>
-
-              <span className="shrink-0 font-bold text-slate-900">
-                {valueFormatter(
-                  row[valueKey]
-                )}
-              </span>
-            </div>
-
-            <div className="mt-2 h-3 overflow-hidden rounded-full bg-slate-100">
-              <div
-                className={`h-full rounded-full ${barClass}`}
-                style={{
-                  width: `${barWidth(
-                    row[valueKey],
-                    maximum
-                  )}%`,
-                }}
-              />
-            </div>
+        {companyRows.length === 0 ? (
+          <div className="p-10 text-center text-slate-500">
+            {onlyOwing
+              ? `Every company has paid up in ${periodLabel}.`
+              : `No invoices were issued in ${periodLabel}.`}
           </div>
-        ))}
-      </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[880px] text-left">
+              <thead className="bg-slate-50 text-sm text-slate-500">
+                <tr>
+                  <th className="px-4 py-3 font-semibold">
+                    Company
+                  </th>
+                  <th className="px-4 py-3 text-right font-semibold">
+                    Jobs
+                  </th>
+                  <th className="px-4 py-3 text-right font-semibold">
+                    Invoiced
+                  </th>
+                  <th className="px-4 py-3 text-right font-semibold">
+                    Yours
+                  </th>
+                  <th className="px-4 py-3 text-right font-semibold">
+                    Other company
+                  </th>
+                  <th className="px-4 py-3 text-right font-semibold">
+                    Paid
+                  </th>
+                  <th className="px-4 py-3 text-right font-semibold">
+                    Still owed
+                  </th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {companyRows.map((company) => {
+                  const isOpen =
+                    expandedCompany === company.key;
+
+                  const owingMonths =
+                    company.months.filter(
+                      (month) => month.outstanding > 0
+                    );
+
+                  return (
+                <Fragment key={company.key}>
+                  <tr
+                    onClick={() =>
+                      setExpandedCompany(
+                        isOpen ? "" : company.key
+                      )
+                    }
+                    className={`cursor-pointer border-t border-slate-200 tabular-nums ${
+                      isOpen
+                        ? "bg-slate-50"
+                        : "hover:bg-slate-50"
+                    }`}
+                  >
+                    <td className="px-4 py-4">
+                      <div className="flex items-start gap-2">
+                        <span
+                          aria-hidden="true"
+                          className={`mt-1 select-none text-xs text-slate-400 transition-transform ${
+                            isOpen ? "rotate-90" : ""
+                          }`}
+                        >
+                          &#9654;
+                        </span>
+
+                        <div>
+                          <div className="font-semibold text-slate-900">
+                            {company.name}
+                          </div>
+
+                          {owingMonths.length > 0 && (
+                            <div className="mt-1 text-xs font-semibold text-rose-600">
+                              Owes you in{" "}
+                              {owingMonths
+                                .map(
+                                  (month) =>
+                                    MONTHS[
+                                      month.monthIndex
+                                    ]
+                                )
+                                .join(", ")}
+                            </div>
+                          )}
+
+                          <div className="mt-2 w-40">
+                            <SplitBar
+                              mine={company.mine}
+                              theirs={company.theirs}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </td>
+
+                    <td className="px-4 py-4 text-right">
+                      {company.jobs}
+
+                      {company.unpaidJobs > 0 && (
+                        <div className="mt-0.5 text-xs text-rose-600">
+                          {company.unpaidJobs}{" "}
+                          unpaid
+                        </div>
+                      )}
+                    </td>
+
+                    <td className="px-4 py-4 text-right font-semibold">
+                      {money(company.invoiced)}
+                    </td>
+
+                    <td className="px-4 py-4 text-right font-semibold text-emerald-700">
+                      {money(company.mine)}
+                    </td>
+
+                    <td className="px-4 py-4 text-right text-violet-700">
+                      {money(company.theirs)}
+                    </td>
+
+                    <td className="px-4 py-4 text-right">
+                      {money(company.received)}
+                    </td>
+
+                    <td
+                      className={`px-4 py-4 text-right font-semibold ${
+                        company.outstanding > 0
+                          ? "text-rose-700"
+                          : "text-slate-400"
+                      }`}
+                    >
+                      {company.outstanding > 0
+                        ? money(
+                            company.outstanding
+                          )
+                        : "Settled"}
+                    </td>
+                  </tr>
+
+                  {isOpen &&
+                    company.months.map((month) => (
+                      <tr
+                        key={`${company.key}-${month.monthIndex}`}
+                        className="border-t border-slate-100 bg-slate-50/60 text-sm tabular-nums"
+                      >
+                        <td className="py-2.5 pl-12 pr-4 text-slate-600">
+                          {
+                            MONTH_NAMES[
+                              month.monthIndex
+                            ]
+                          }{" "}
+                          {selectedYear}
+                        </td>
+
+                        <td className="px-4 py-2.5 text-right text-slate-600">
+                          {month.jobs}
+
+                          {month.unpaidJobs > 0 && (
+                            <span className="ml-1 text-xs text-rose-600">
+                              ({month.unpaidJobs}{" "}
+                              unpaid)
+                            </span>
+                          )}
+                        </td>
+
+                        <td className="px-4 py-2.5 text-right text-slate-600">
+                          {money(month.invoiced)}
+                        </td>
+
+                        <td className="px-4 py-2.5 text-right text-emerald-700">
+                          {money(month.mine)}
+                        </td>
+
+                        <td className="px-4 py-2.5 text-right text-violet-700">
+                          {money(month.theirs)}
+                        </td>
+
+                        <td className="px-4 py-2.5 text-right text-slate-600">
+                          {money(month.received)}
+                        </td>
+
+                        <td
+                          className={`px-4 py-2.5 text-right font-semibold ${
+                            month.outstanding > 0
+                              ? "text-rose-700"
+                              : "text-slate-400"
+                          }`}
+                        >
+                          {month.outstanding > 0
+                            ? money(
+                                month.outstanding
+                              )
+                            : "Settled"}
+                        </td>
+                      </tr>
+                    ))}
+                </Fragment>
+                  );
+                })}
+              </tbody>
+
+              <tfoot>
+                <tr className="border-t-2 border-slate-300 bg-slate-50 font-bold tabular-nums">
+                  <td className="px-4 py-3">
+                    {companyRows.length}{" "}
+                    {companyRows.length === 1
+                      ? "company"
+                      : "companies"}
+                  </td>
+
+                  <td className="px-4 py-3 text-right">
+                    {companyRows.reduce(
+                      (sum, row) => sum + row.jobs,
+                      0
+                    )}
+                  </td>
+
+                  <td className="px-4 py-3 text-right">
+                    {money(
+                      companyRows.reduce(
+                        (sum, row) =>
+                          sum + row.invoiced,
+                        0
+                      )
+                    )}
+                  </td>
+
+                  <td className="px-4 py-3 text-right text-emerald-700">
+                    {money(
+                      companyRows.reduce(
+                        (sum, row) => sum + row.mine,
+                        0
+                      )
+                    )}
+                  </td>
+
+                  <td className="px-4 py-3 text-right text-violet-700">
+                    {money(
+                      companyRows.reduce(
+                        (sum, row) =>
+                          sum + row.theirs,
+                        0
+                      )
+                    )}
+                  </td>
+
+                  <td className="px-4 py-3 text-right">
+                    {money(
+                      companyRows.reduce(
+                        (sum, row) =>
+                          sum + row.received,
+                        0
+                      )
+                    )}
+                  </td>
+
+                  <td className="px-4 py-3 text-right text-rose-700">
+                    {money(
+                      companyRows.reduce(
+                        (sum, row) =>
+                          sum + row.outstanding,
+                        0
+                      )
+                    )}
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        )}
+      </section>
     </div>
   );
 }

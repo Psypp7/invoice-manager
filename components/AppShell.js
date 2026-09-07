@@ -17,6 +17,12 @@ const menuItems = [
   },
   { name: "Clients", href: "/clients" },
   { name: "Calendar", href: "/calendar" },
+
+  {
+    name: "AI Inventory",
+    href: "/reports/ai-test",
+  },
+
   { name: "Settings", href: "/settings" },
   {
     name: "Invoice Email",

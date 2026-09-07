@@ -1,86 +1,212 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import {
+  Fragment,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import { supabase } from "../lib/supabase";
 
-function getToday() {
-  return new Date().toISOString().slice(0, 10);
+// ============================================================
+// BRAND
+// ============================================================
+// Every colour comes from the logo or the invoice letterhead so
+// the app, the PDF and the logo all agree.
+
+const BRAND = {
+  ink: "#1C1917",
+  blush: "#ECD8D3",
+  blushSoft: "#F7EDEB",
+  magenta: "#D0007F",
+  moss: "#426429",
+  mute: "#78716C",
+  line: "#E7E1DF",
+  wash: "#F5F1F0",
+};
+
+const AGE_BUCKETS = [
+  {
+    id: "fresh",
+    label: "Under 2 weeks",
+    short: "< 2 wks",
+    test: (days) => days < 14,
+    colour: "#E3CBC6",
+    onColour: "#1C1917",
+  },
+  {
+    id: "chase",
+    label: "2 to 4 weeks",
+    short: "2\u20134 wks",
+    test: (days) => days >= 14 && days < 30,
+    colour: "#E0899F",
+    onColour: "#1C1917",
+  },
+  {
+    id: "late",
+    label: "1 to 2 months",
+    short: "1\u20132 mths",
+    test: (days) => days >= 30 && days < 60,
+    colour: "#D0007F",
+    onColour: "#FFFFFF",
+  },
+  {
+    id: "serious",
+    label: "Over 2 months",
+    short: "2 mths +",
+    test: (days) => days >= 60,
+    colour: "#8A0050",
+    onColour: "#FFFFFF",
+  },
+];
+
+function bucketFor(days) {
+  return (
+    AGE_BUCKETS.find((bucket) => bucket.test(days)) ||
+    AGE_BUCKETS[0]
+  );
 }
 
-function startOfCurrentMonth() {
+// ============================================================
+// DATES AND NUMBERS
+// ============================================================
+
+function getToday() {
   const now = new Date();
 
   return [
     now.getFullYear(),
     String(now.getMonth() + 1).padStart(2, "0"),
-    "01",
+    String(now.getDate()).padStart(2, "0"),
   ].join("-");
 }
 
-function formatMoney(value) {
+function monthKey(value) {
+  return String(value || "").slice(0, 7);
+}
+
+function yearKey(value) {
+  return String(value || "").slice(0, 4);
+}
+
+function shiftMonth(offset) {
+  const now = new Date();
+  now.setDate(1);
+  now.setMonth(now.getMonth() + offset);
+
+  return [
+    now.getFullYear(),
+    String(now.getMonth() + 1).padStart(2, "0"),
+  ].join("-");
+}
+
+function monthLabel(key, style = "long") {
+  const parts = String(key || "").split("-");
+
+  if (parts.length !== 2) return "";
+
+  return new Intl.DateTimeFormat("en-GB", {
+    month: style,
+  }).format(
+    new Date(Number(parts[0]), Number(parts[1]) - 1, 1)
+  );
+}
+
+function longDate(value) {
+  const match = String(value || "").match(
+    /^(\d{4})-(\d{2})-(\d{2})/
+  );
+
+  if (!match) return "\u2014";
+
+  return new Intl.DateTimeFormat("en-GB", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  }).format(
+    new Date(
+      Number(match[1]),
+      Number(match[2]) - 1,
+      Number(match[3])
+    )
+  );
+}
+
+function shortDate(value) {
+  const match = String(value || "").match(
+    /^(\d{4})-(\d{2})-(\d{2})/
+  );
+
+  if (!match) return "\u2014";
+
+  return new Intl.DateTimeFormat("en-GB", {
+    day: "2-digit",
+    month: "short",
+  }).format(
+    new Date(
+      Number(match[1]),
+      Number(match[2]) - 1,
+      Number(match[3])
+    )
+  );
+}
+
+function daysBetween(startDate, endDate = getToday()) {
+  if (!startDate) return 0;
+
+  const start = new Date(
+    `${String(startDate).slice(0, 10)}T12:00:00`
+  );
+
+  const end = new Date(
+    `${String(endDate).slice(0, 10)}T12:00:00`
+  );
+
+  return Math.max(
+    0,
+    Math.floor((end.getTime() - start.getTime()) / 86400000)
+  );
+}
+
+function money(value) {
+  return new Intl.NumberFormat("en-GB", {
+    style: "currency",
+    currency: "GBP",
+    maximumFractionDigits: 0,
+  }).format(Number(value || 0));
+}
+
+function exactMoney(value) {
   return new Intl.NumberFormat("en-GB", {
     style: "currency",
     currency: "GBP",
   }).format(Number(value || 0));
 }
 
-function formatDate(value) {
-  if (!value) return "—";
-
-  const match = String(value).match(
-    /^(\d{4})-(\d{2})-(\d{2})/
-  );
-
-  if (match) {
-    return `${match[3]} ${new Intl.DateTimeFormat(
-      "en-GB",
-      { month: "short" }
-    ).format(
-      new Date(
-        Number(match[1]),
-        Number(match[2]) - 1,
-        Number(match[3])
-      )
-    )} ${match[1]}`;
-  }
-
-  return "—";
-}
-
-function daysBetween(startDate, endDate = getToday()) {
-  if (!startDate) return 0;
-
-  const start = new Date(`${startDate}T12:00:00`);
-  const end = new Date(`${endDate}T12:00:00`);
+function percentage(part, whole) {
+  if (!whole) return 0;
 
   return Math.max(
     0,
-    Math.floor(
-      (end.getTime() - start.getTime()) /
-        86400000
-    )
+    Math.min(100, (Number(part || 0) / Number(whole)) * 100)
   );
 }
 
-function invoiceNumberValue(invoiceNumber) {
-  const match = String(invoiceNumber || "")
-    .toUpperCase()
-    .match(/(\d+)$/);
-
-  return match ? Number(match[1]) : 0;
-}
+// ============================================================
+// INVOICE HELPERS
+// ============================================================
 
 function getDescription(invoice) {
   return (
-    invoice.invoice_items?.[0]?.description ||
-    ""
+    invoice.invoice_items?.[0]?.description || ""
   ).trim();
 }
 
-function getReportType(description) {
-  const lower = String(description || "")
-    .toLowerCase();
+function getReportType(invoice) {
+  const lower = getDescription(invoice).toLowerCase();
 
   if (
     lower.includes("check-in") ||
@@ -96,13 +222,8 @@ function getReportType(description) {
     return "Check-out";
   }
 
-  if (lower.includes("midterm")) {
-    return "Midterm";
-  }
-
-  if (lower.includes("inventory")) {
-    return "Inventory";
-  }
+  if (lower.includes("midterm")) return "Midterm";
+  if (lower.includes("inventory")) return "Inventory";
 
   return "Report";
 }
@@ -110,97 +231,277 @@ function getReportType(description) {
 function getPropertyText(invoice) {
   const description = getDescription(invoice);
 
-  if (!description) {
-    return "No description";
-  }
+  if (!description) return "No description";
 
-  const atMatches = [
-    ...description.matchAll(/\s+at\s+/gi),
-  ];
+  const atMatches = [...description.matchAll(/\s+at\s+/gi)];
 
-  if (!atMatches.length) {
-    return description;
-  }
+  if (!atMatches.length) return description;
+
+  const last = atMatches[atMatches.length - 1];
 
   return description
-    .slice(
-      atMatches[atMatches.length - 1].index +
-        atMatches[atMatches.length - 1][0].length
-    )
+    .slice(last.index + last[0].length)
     .trim();
 }
 
-function statusClass(status) {
-  switch (status) {
-    case "paid":
-      return "bg-green-100 text-green-700";
-
-    case "cancelled":
-      return "bg-slate-200 text-slate-600";
-
-    case "draft":
-      return "bg-blue-100 text-blue-700";
-
-    default:
-      return "bg-amber-100 text-amber-700";
-  }
-}
-
-function paymentText(invoice) {
-  if (invoice.status === "paid") {
-    return "Paid";
-  }
-
-  if (invoice.status === "cancelled") {
-    return "Cancelled";
-  }
-
-  if (invoice.status === "draft") {
-    return "Draft";
-  }
-
-  const days = daysBetween(invoice.issue_date);
-
-  if (days === 0) return "Unpaid today";
-  if (days === 1) return "Unpaid for 1 day";
-
-  return `Unpaid for ${days} days`;
-}
-
-function StatCard({
-  title,
-  value,
-  secondary,
-  href,
-  accent = "text-slate-900",
-}) {
+function clientLabel(invoice) {
   return (
-    <Link
-      href={href}
-      className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-blue-200 hover:shadow-md"
-    >
-      <p className="text-sm font-semibold text-slate-500">
-        {title}
-      </p>
-
-      <p
-        className={`mt-3 break-words text-3xl font-bold tracking-tight ${accent}`}
-      >
-        {value}
-      </p>
-
-      <p className="mt-2 text-sm text-slate-500">
-        {secondary}
-      </p>
-    </Link>
+    invoice.client?.company_name ||
+    invoice.client?.name ||
+    invoice.customer_name ||
+    "Unknown client"
   );
 }
 
+function balanceOf(invoice) {
+  const total = Number(invoice.total || 0);
+
+  if (invoice.status === "paid") return 0;
+
+  return Math.max(
+    0,
+    Math.min(total, Number(invoice.balance_due ?? total))
+  );
+}
+
+function myShareOf(invoice) {
+  return Number(
+    invoice.internal_amount ?? invoice.total ?? 0
+  );
+}
+
+// ============================================================
+// UI PIECES
+// ============================================================
+
+function Panel({ children, className = "" }) {
+  return (
+    <section
+      className={`rounded-xl bg-white ${className}`}
+      style={{
+        border: `1px solid ${BRAND.line}`,
+        boxShadow: "0 1px 2px rgba(28,25,23,0.04)",
+      }}
+    >
+      {children}
+    </section>
+  );
+}
+
+function PanelHead({ title, note, action }) {
+  return (
+    <div
+      className="flex flex-col justify-between gap-2 px-6 py-4 sm:flex-row sm:items-center"
+      style={{ borderBottom: `1px solid ${BRAND.line}` }}
+    >
+      <div>
+        <h2
+          className="text-base font-semibold"
+          style={{ color: BRAND.ink }}
+        >
+          {title}
+        </h2>
+
+        {note && (
+          <p
+            className="mt-0.5 text-sm"
+            style={{ color: BRAND.mute }}
+          >
+            {note}
+          </p>
+        )}
+      </div>
+
+      {action}
+    </div>
+  );
+}
+
+function AgeTag({ days }) {
+  const bucket = bucketFor(days);
+
+  return (
+    <span
+      className="inline-block whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-semibold tabular-nums"
+      style={{
+        backgroundColor: bucket.colour,
+        color: bucket.onColour,
+      }}
+    >
+      {days} {days === 1 ? "day" : "days"}
+    </span>
+  );
+}
+
+/** Aged debt, the panel Xero leads with. */
+function AgedColumns({ buckets, active, onSelect }) {
+  const maximum = Math.max(
+    1,
+    ...buckets.map((bucket) => bucket.amount)
+  );
+
+  return (
+    <div className="flex items-end gap-3 sm:gap-5">
+      {buckets.map((bucket) => {
+        const isActive = active === bucket.id;
+        const isEmpty = bucket.count === 0;
+
+        return (
+          <button
+            key={bucket.id}
+            type="button"
+            disabled={isEmpty}
+            onClick={() =>
+              onSelect(isActive ? "" : bucket.id)
+            }
+            aria-pressed={isActive}
+            className="flex flex-1 flex-col items-center gap-2 rounded-lg p-2 outline-none transition disabled:cursor-default"
+            style={{
+              backgroundColor: isActive
+                ? BRAND.blushSoft
+                : "transparent",
+            }}
+          >
+            <span
+              className="text-sm font-semibold tabular-nums"
+              style={{
+                color: isEmpty ? "#C4BDBA" : BRAND.ink,
+              }}
+            >
+              {isEmpty ? "\u2014" : money(bucket.amount)}
+            </span>
+
+            <span className="flex h-24 w-full items-end sm:h-32">
+              <span
+                className="w-full rounded-t-md transition-all"
+                style={{
+                  height: `${Math.max(
+                    isEmpty ? 3 : 8,
+                    percentage(bucket.amount, maximum)
+                  )}%`,
+                  backgroundColor: isEmpty
+                    ? "#F1ECEA"
+                    : bucket.colour,
+                  opacity: !active || isActive ? 1 : 0.4,
+                }}
+              />
+            </span>
+
+            <span
+              className="text-xs font-semibold"
+              style={{
+                color: isActive ? BRAND.ink : BRAND.mute,
+              }}
+            >
+              {bucket.short}
+            </span>
+
+            <span
+              className="text-xs tabular-nums"
+              style={{ color: BRAND.mute }}
+            >
+              {bucket.count}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function TrendChart({ months }) {
+  const maximum = Math.max(
+    1,
+    ...months.map((month) =>
+      Math.max(month.invoiced, month.collected)
+    )
+  );
+
+  return (
+    <div>
+      <div className="flex items-end gap-4 sm:gap-8">
+        {months.map((month) => (
+          <div
+            key={month.key}
+            className="flex flex-1 flex-col items-center gap-2"
+          >
+            <span className="flex h-28 w-full items-end justify-center gap-1.5">
+              <span
+                title={`Invoiced ${exactMoney(
+                  month.invoiced
+                )}`}
+                className="w-1/2 max-w-[26px] rounded-t"
+                style={{
+                  height: `${Math.max(
+                    2,
+                    percentage(month.invoiced, maximum)
+                  )}%`,
+                  backgroundColor: BRAND.blush,
+                }}
+              />
+
+              <span
+                title={`Collected ${exactMoney(
+                  month.collected
+                )}`}
+                className="w-1/2 max-w-[26px] rounded-t"
+                style={{
+                  height: `${Math.max(
+                    2,
+                    percentage(month.collected, maximum)
+                  )}%`,
+                  backgroundColor: BRAND.moss,
+                }}
+              />
+            </span>
+
+            <span
+              className="text-xs font-semibold"
+              style={{ color: BRAND.mute }}
+            >
+              {monthLabel(month.key, "short")}
+            </span>
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-4 flex items-center gap-5">
+        {[
+          { colour: BRAND.blush, label: "Invoiced" },
+          { colour: BRAND.moss, label: "Collected" },
+        ].map((item) => (
+          <span
+            key={item.label}
+            className="flex items-center gap-2"
+          >
+            <span
+              className="h-2.5 w-2.5 rounded-sm"
+              style={{ backgroundColor: item.colour }}
+            />
+
+            <span
+              className="text-sm"
+              style={{ color: BRAND.mute }}
+            >
+              {item.label}
+            </span>
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// PAGE
+// ============================================================
+
 export default function DashboardPage() {
   const [invoices, setInvoices] = useState([]);
-  const [clientsCount, setClientsCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
+  const [activeBucket, setActiveBucket] = useState("");
+  const [openDebtor, setOpenDebtor] = useState("");
 
   useEffect(() => {
     initialiseDashboard();
@@ -221,14 +522,12 @@ export default function DashboardPage() {
         return;
       }
 
-      const {
-        data: business,
-        error: businessError,
-      } = await supabase
-        .from("businesses")
-        .select("id")
-        .eq("owner_user_id", user.id)
-        .single();
+      const { data: business, error: businessError } =
+        await supabase
+          .from("businesses")
+          .select("id")
+          .eq("owner_user_id", user.id)
+          .single();
 
       if (businessError || !business) {
         throw (
@@ -237,61 +536,43 @@ export default function DashboardPage() {
         );
       }
 
-      const [
-        invoicesResult,
-        clientsResult,
-      ] = await Promise.all([
-        supabase
-          .from("invoices")
-          .select(
-            `
+      const { data, error } = await supabase
+        .from("invoices")
+        .select(
+          `
+            id,
+            invoice_number,
+            issue_date,
+            status,
+            total,
+            internal_amount,
+            agency_commission,
+            balance_due,
+            paid_at,
+            sent_at,
+            customer_name,
+            customer_email,
+            client_id,
+            client:clients(
               id,
-              invoice_number,
-              issue_date,
-              status,
-              total,
-              amount_paid,
-              balance_due,
-              paid_at,
-              sent_at,
-              customer_name,
-              client:clients(
-                id,
-                name,
-                company_name
-              ),
-              invoice_items(
-                id,
-                description,
-                sort_order
-              )
-            `
-          )
-          .eq("business_id", business.id)
-          .is("deleted_at", null),
+              name,
+              company_name,
+              email
+            ),
+            invoice_items(
+              id,
+              description,
+              sort_order
+            )
+          `
+        )
+        .eq("business_id", business.id)
+        .is("deleted_at", null);
 
-        supabase
-          .from("clients")
-          .select("id", {
-            count: "exact",
-            head: true,
-          })
-          .eq("business_id", business.id)
-          .eq("is_active", true),
-      ]);
+      if (error) throw error;
 
-      if (invoicesResult.error) {
-        throw invoicesResult.error;
-      }
-
-      if (clientsResult.error) {
-        throw clientsResult.error;
-      }
-
-      const sortedInvoices = [
-        ...(invoicesResult.data || []),
-      ]
-        .map((invoice) => ({
+      setInvoices(
+        (data || []).map((invoice) => ({
           ...invoice,
           invoice_items: [
             ...(invoice.invoice_items || []),
@@ -301,19 +582,6 @@ export default function DashboardPage() {
               Number(second.sort_order || 0)
           ),
         }))
-        .sort(
-          (first, second) =>
-            invoiceNumberValue(
-              second.invoice_number
-            ) -
-            invoiceNumberValue(
-              first.invoice_number
-            )
-        );
-
-      setInvoices(sortedInvoices);
-      setClientsCount(
-        clientsResult.count || 0
       );
     } catch (error) {
       console.error(error);
@@ -327,176 +595,356 @@ export default function DashboardPage() {
     }
   }
 
-  const dashboardData = useMemo(() => {
-    const monthStart = startOfCurrentMonth();
+  const data = useMemo(() => {
+    const thisMonth = shiftMonth(0);
+    const lastMonth = shiftMonth(-1);
+    const thisYear = getToday().slice(0, 4);
 
-    const activeInvoices = invoices.filter(
-      (invoice) =>
-        invoice.status !== "cancelled"
+    const active = invoices.filter(
+      (invoice) => invoice.status !== "cancelled"
     );
 
-    const unpaidInvoices =
-      activeInvoices.filter(
-        (invoice) =>
-          invoice.status !== "paid" &&
-          Number(
-            invoice.balance_due ??
-              invoice.total ??
-              0
-          ) > 0
+    const unpaid = active
+      .filter((invoice) => balanceOf(invoice) > 0)
+      .map((invoice) => {
+        const age = daysBetween(invoice.issue_date);
+
+        return {
+          ...invoice,
+          age,
+          balance: balanceOf(invoice),
+          bucket: bucketFor(age).id,
+        };
+      })
+      .sort((first, second) => second.age - first.age);
+
+    const buckets = AGE_BUCKETS.map((bucket) => {
+      const rows = unpaid.filter(
+        (invoice) => invoice.bucket === bucket.id
       );
 
-    const paidInvoices =
-      activeInvoices.filter(
-        (invoice) =>
-          invoice.status === "paid"
-      );
+      return {
+        ...bucket,
+        count: rows.length,
+        amount: rows.reduce(
+          (sum, invoice) => sum + invoice.balance,
+          0
+        ),
+      };
+    });
 
-    const paidThisMonth =
-      paidInvoices.filter((invoice) => {
-        if (!invoice.paid_at) return false;
+    const outstanding = unpaid.reduce(
+      (sum, invoice) => sum + invoice.balance,
+      0
+    );
 
-        return (
-          String(invoice.paid_at).slice(0, 10) >=
-          monthStart
-        );
-      });
+    const myOutstanding = unpaid.reduce((sum, invoice) => {
+      const total = Number(invoice.total || 0);
+      const rate = total > 0 ? invoice.balance / total : 1;
 
-    const outstandingTotal =
-      unpaidInvoices.reduce(
-        (sum, invoice) =>
-          sum +
-          Number(
-            invoice.balance_due ??
-              invoice.total ??
-              0
-          ),
-        0
-      );
+      return sum + myShareOf(invoice) * rate;
+    }, 0);
 
-    const paidThisMonthTotal =
-      paidThisMonth.reduce(
-        (sum, invoice) =>
-          sum +
-          Number(
-            invoice.amount_paid ||
-              invoice.total ||
-              0
-          ),
-        0
-      );
+    const neverSent = unpaid.filter(
+      (invoice) => !invoice.sent_at
+    );
 
-    const totalInvoiceValue =
-      activeInvoices.reduce(
-        (sum, invoice) =>
-          sum + Number(invoice.total || 0),
-        0
-      );
+    // Debt grouped by client. Chasing happens per client,
+    // not per invoice, so this is the list that gets used.
+    const debtorMap = new Map();
 
-    const sentCount =
-      activeInvoices.filter(
-        (invoice) => invoice.sent_at
-      ).length;
+    for (const invoice of unpaid) {
+      const key =
+        invoice.client_id ||
+        `unknown-${clientLabel(invoice)}`;
 
-    const notSentCount =
-      activeInvoices.length - sentCount;
-
-    const averagePaymentDays = (() => {
-      const paidWithDates =
-        paidInvoices.filter(
-          (invoice) =>
-            invoice.issue_date &&
-            invoice.paid_at
-        );
-
-      if (!paidWithDates.length) {
-        return 0;
+      if (!debtorMap.has(key)) {
+        debtorMap.set(key, {
+          key,
+          name: clientLabel(invoice),
+          email:
+            invoice.client?.email ||
+            invoice.customer_email ||
+            "",
+          owed: 0,
+          mine: 0,
+          count: 0,
+          neverSentCount: 0,
+          oldest: 0,
+          rows: [],
+        });
       }
 
-      const totalDays =
-        paidWithDates.reduce(
+      const debtor = debtorMap.get(key);
+      const total = Number(invoice.total || 0);
+      const rate = total > 0 ? invoice.balance / total : 1;
+
+      debtor.owed += invoice.balance;
+      debtor.mine += myShareOf(invoice) * rate;
+      debtor.count += 1;
+      debtor.oldest = Math.max(debtor.oldest, invoice.age);
+      debtor.rows.push(invoice);
+
+      if (!invoice.sent_at) debtor.neverSentCount += 1;
+    }
+
+    const debtors = Array.from(debtorMap.values())
+      .map((debtor) => ({
+        ...debtor,
+        rows: debtor.rows.sort(
+          (first, second) => second.age - first.age
+        ),
+      }))
+      .sort(
+        (first, second) =>
+          second.owed - first.owed ||
+          second.oldest - first.oldest
+      );
+
+    const paidIn = (key) =>
+      active.filter(
+        (invoice) =>
+          invoice.status === "paid" &&
+          invoice.paid_at &&
+          monthKey(invoice.paid_at) === key
+      );
+
+    const issuedIn = (key) =>
+      active.filter(
+        (invoice) => monthKey(invoice.issue_date) === key
+      );
+
+    const sumTotal = (rows) =>
+      rows.reduce(
+        (sum, invoice) => sum + Number(invoice.total || 0),
+        0
+      );
+
+    const sumMine = (rows) =>
+      rows.reduce(
+        (sum, invoice) => sum + myShareOf(invoice),
+        0
+      );
+
+    const trend = [];
+
+    for (let offset = -5; offset <= 0; offset += 1) {
+      const key = shiftMonth(offset);
+
+      trend.push({
+        key,
+        invoiced: sumTotal(issuedIn(key)),
+        collected: sumTotal(paidIn(key)),
+      });
+    }
+
+    const paidThisMonth = paidIn(thisMonth);
+    const paidThisMonthTotal = sumTotal(paidThisMonth);
+    const paidLastMonthTotal = sumTotal(paidIn(lastMonth));
+    const myPaidThisMonth = sumMine(paidThisMonth);
+
+    const paidThisYear = active.filter(
+      (invoice) =>
+        invoice.status === "paid" &&
+        invoice.paid_at &&
+        yearKey(invoice.paid_at) === thisYear
+    );
+
+    const settled = active.filter(
+      (invoice) => balanceOf(invoice) === 0
+    );
+
+    const averagePaymentDays = (() => {
+      const withDates = settled.filter(
+        (invoice) => invoice.issue_date && invoice.paid_at
+      );
+
+      if (!withDates.length) return 0;
+
+      return Math.round(
+        withDates.reduce(
           (sum, invoice) =>
             sum +
             daysBetween(
               invoice.issue_date,
-              String(invoice.paid_at).slice(
-                0,
-                10
-              )
+              invoice.paid_at
             ),
           0
-        );
-
-      return Math.round(
-        totalDays /
-          paidWithDates.length
+        ) / withDates.length
       );
     })();
 
-    const oldestUnpaid = [
-      ...unpaidInvoices,
-    ].sort(
-      (first, second) =>
-        daysBetween(second.issue_date) -
-        daysBetween(first.issue_date)
-    )[0];
-
-    const recentInvoices =
-      activeInvoices.slice(0, 7);
+    const jobsThisMonth = issuedIn(thisMonth).length;
+    const jobsLastMonth = issuedIn(lastMonth).length;
 
     return {
-      activeInvoices,
-      unpaidInvoices,
-      paidInvoices,
-      paidThisMonth,
-      outstandingTotal,
+      active,
+      unpaid,
+      buckets,
+      outstanding,
+      myOutstanding,
+      neverSent,
+      debtors,
+      trend,
+      thisMonth,
+      lastMonth,
+      thisYear,
       paidThisMonthTotal,
-      totalInvoiceValue,
-      sentCount,
-      notSentCount,
+      paidLastMonthTotal,
+      myPaidThisMonth,
+      otherPaidThisMonth:
+        paidThisMonthTotal - myPaidThisMonth,
+      myEarnedThisYear: sumMine(paidThisYear),
+      paidThisYearCount: paidThisYear.length,
       averagePaymentDays,
-      oldestUnpaid,
-      recentInvoices,
+      averageInvoiceValue: active.length
+        ? sumTotal(active) / active.length
+        : 0,
+      jobsThisMonth,
+      jobsLastMonth,
+      monthChange:
+        paidLastMonthTotal > 0
+          ? ((paidThisMonthTotal - paidLastMonthTotal) /
+              paidLastMonthTotal) *
+            100
+          : null,
     };
   }, [invoices]);
 
+  const visibleDebtors = useMemo(() => {
+    if (!activeBucket) return data.debtors.slice(0, 8);
+
+    return data.debtors
+      .map((debtor) => {
+        const rows = debtor.rows.filter(
+          (invoice) => invoice.bucket === activeBucket
+        );
+
+        return {
+          ...debtor,
+          rows,
+          count: rows.length,
+          owed: rows.reduce(
+            (sum, invoice) => sum + invoice.balance,
+            0
+          ),
+          oldest: rows.reduce(
+            (top, invoice) => Math.max(top, invoice.age),
+            0
+          ),
+        };
+      })
+      .filter((debtor) => debtor.rows.length > 0)
+      .sort((first, second) => second.owed - first.owed)
+      .slice(0, 8);
+  }, [data.debtors, activeBucket]);
+
   if (loading) {
     return (
-      <div className="text-slate-500">
+      <p style={{ color: BRAND.mute }}>
         Loading dashboard...
-      </div>
+      </p>
     );
   }
 
+  const activeBucketLabel = AGE_BUCKETS.find(
+    (bucket) => bucket.id === activeBucket
+  )?.label;
+
+  const metrics = [
+    {
+      label: `Yours in ${data.thisYear}`,
+      value: money(data.myEarnedThisYear),
+      note: `Collected on ${data.paidThisYearCount} invoices`,
+      colour: BRAND.moss,
+    },
+    {
+      label: "Average time to get paid",
+      value: `${data.averagePaymentDays} days`,
+      note: "From issue to payment",
+    },
+    {
+      label: "Average invoice",
+      value: money(data.averageInvoiceValue),
+      note: `Across ${data.active.length} invoices`,
+    },
+    {
+      label: `Jobs in ${monthLabel(data.thisMonth)}`,
+      value: data.jobsThisMonth,
+      note:
+        data.jobsLastMonth > 0
+          ? `${data.jobsLastMonth} in ${monthLabel(
+              data.lastMonth
+            )}`
+          : "First month with work",
+    },
+  ];
+
   return (
-    <div className="space-y-7">
-      <header className="flex flex-col justify-between gap-5 xl:flex-row xl:items-end">
-        <div>
-          <p className="text-sm font-semibold uppercase tracking-wide text-blue-600">
-            Right Inventories
-          </p>
+    <div
+      className="space-y-5"
+      style={{
+        color: BRAND.ink,
+        fontFamily:
+          "ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif",
+      }}
+    >
+      {/* -------------------------------------------------- */}
+      {/* MASTHEAD                                            */}
+      {/* -------------------------------------------------- */}
 
-          <h1 className="mt-1 text-4xl font-bold tracking-tight text-slate-900">
-            Dashboard
-          </h1>
+      <header
+        className="flex flex-col gap-5 rounded-xl px-6 py-5 md:flex-row md:items-center md:justify-between"
+        style={{
+          backgroundColor: BRAND.blushSoft,
+          border: `1px solid ${BRAND.blush}`,
+        }}
+      >
+        <div className="flex items-center gap-4">
+          <span
+            className="shrink-0 overflow-hidden rounded-lg"
+            style={{ border: `1px solid ${BRAND.blush}` }}
+          >
+            <Image
+              src="/right-inventories-logo.png"
+              alt="Right Inventories"
+              width={166}
+              height={166}
+              className="h-14 w-14 object-cover"
+              priority
+            />
+          </span>
 
-          <p className="mt-2 max-w-3xl text-slate-500">
-            A focused overview of invoices,
-            payments, clients and email status.
-          </p>
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight">
+              Right Inventories London
+            </h1>
+
+            <p
+              className="mt-0.5 text-sm"
+              style={{ color: BRAND.mute }}
+            >
+              {longDate(getToday())}
+            </p>
+          </div>
         </div>
 
         <div className="flex flex-wrap gap-3">
           <Link
             href="/invoices/import"
-            className="rounded-lg border border-blue-600 px-4 py-3 font-semibold text-blue-600 hover:bg-blue-50"
+            className="rounded-lg bg-white px-4 py-2.5 text-sm font-semibold transition hover:opacity-80"
+            style={{
+              border: `1px solid ${BRAND.blush}`,
+              color: BRAND.ink,
+            }}
           >
             Import spreadsheet
           </Link>
 
           <Link
             href="/invoices"
-            className="rounded-lg bg-blue-600 px-4 py-3 font-semibold text-white hover:bg-blue-700"
+            className="rounded-lg px-4 py-2.5 text-sm font-semibold text-white transition hover:opacity-90"
+            style={{ backgroundColor: BRAND.magenta }}
           >
             Create invoice
           </Link>
@@ -509,312 +957,494 @@ export default function DashboardPage() {
         </div>
       )}
 
-      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard
-          title="Outstanding"
-          value={formatMoney(
-            dashboardData.outstandingTotal
-          )}
-          secondary={`${dashboardData.unpaidInvoices.length} unpaid invoices`}
-          href="/invoices"
-          accent="text-red-700"
-        />
+      {data.neverSent.length > 0 && (
+        <div
+          className="flex flex-col gap-3 rounded-xl px-5 py-4 sm:flex-row sm:items-center sm:justify-between"
+          style={{
+            backgroundColor: "#FDF2F8",
+            border: `1px solid ${BRAND.blush}`,
+          }}
+        >
+          <p className="text-sm">
+            <span className="font-semibold tabular-nums">
+              {data.neverSent.length}
+            </span>{" "}
+            unpaid{" "}
+            {data.neverSent.length === 1
+              ? "invoice has"
+              : "invoices have"}{" "}
+            never been emailed, worth{" "}
+            <span className="font-semibold tabular-nums">
+              {money(
+                data.neverSent.reduce(
+                  (sum, invoice) => sum + invoice.balance,
+                  0
+                )
+              )}
+            </span>
+            .
+          </p>
 
-        <StatCard
-          title="Paid this month"
-          value={formatMoney(
-            dashboardData.paidThisMonthTotal
-          )}
-          secondary={`${dashboardData.paidThisMonth.length} paid invoices`}
-          href="/invoices"
-          accent="text-green-700"
-        />
+          <Link
+            href="/invoices"
+            className="shrink-0 text-sm font-semibold"
+            style={{ color: BRAND.magenta }}
+          >
+            Send them
+          </Link>
+        </div>
+      )}
 
-        <StatCard
-          title="Total invoiced"
-          value={formatMoney(
-            dashboardData.totalInvoiceValue
-          )}
-          secondary={`${dashboardData.activeInvoices.length} active invoice records`}
-          href="/company-analytics"
-        />
+      {/* -------------------------------------------------- */}
+      {/* OWED  +  MONEY IN                                   */}
+      {/* -------------------------------------------------- */}
 
-        <StatCard
-          title="Active clients"
-          value={clientsCount}
-          secondary="Agencies, landlords and companies"
-          href="/clients"
-        />
-      </section>
+      <div className="grid gap-5 xl:grid-cols-[1.5fr_1fr]">
+        <Panel>
+          <PanelHead
+            title="Invoices owed to you"
+            note="Select a column to narrow the list below"
+          />
 
-      <section className="grid gap-6 xl:grid-cols-[1.7fr_1fr]">
-        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-          <div className="flex flex-col justify-between gap-3 border-b border-slate-200 p-5 sm:flex-row sm:items-center">
-            <div>
-              <h2 className="text-xl font-bold text-slate-900">
-                Recent invoices
-              </h2>
+          <div className="p-6">
+            <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
+              <p className="text-5xl font-semibold tabular-nums tracking-tight">
+                {exactMoney(data.outstanding)}
+              </p>
 
-              <p className="mt-1 text-sm text-slate-500">
-                Highest invoice numbers first
+              <p
+                className="text-sm"
+                style={{ color: BRAND.mute }}
+              >
+                from {data.debtors.length}{" "}
+                {data.debtors.length === 1
+                  ? "client"
+                  : "clients"}
+                , {data.unpaid.length}{" "}
+                {data.unpaid.length === 1
+                  ? "invoice"
+                  : "invoices"}
               </p>
             </div>
 
-            <Link
-              href="/invoices"
-              className="font-semibold text-blue-600 hover:text-blue-800"
+            <p
+              className="mt-1 text-sm tabular-nums"
+              style={{ color: BRAND.mute }}
             >
-              View all invoices
-            </Link>
+              {exactMoney(data.myOutstanding)} of this is
+              yours once the other company is paid
+            </p>
+
+            {data.outstanding > 0 && (
+              <div className="mt-6">
+                <AgedColumns
+                  buckets={data.buckets}
+                  active={activeBucket}
+                  onSelect={setActiveBucket}
+                />
+              </div>
+            )}
           </div>
+        </Panel>
 
-          {dashboardData.recentInvoices.length === 0 ? (
-            <div className="p-10 text-center text-slate-500">
-              No invoices have been created yet.
+        <Panel>
+          <PanelHead
+            title={`Paid in ${monthLabel(data.thisMonth)}`}
+          />
+
+          <div className="p-6">
+            <p
+              className="text-4xl font-semibold tabular-nums tracking-tight"
+              style={{ color: BRAND.moss }}
+            >
+              {exactMoney(data.paidThisMonthTotal)}
+            </p>
+
+            <p
+              className="mt-1 text-sm"
+              style={{ color: BRAND.mute }}
+            >
+              {data.monthChange === null ? (
+                <>
+                  Nothing came in during{" "}
+                  {monthLabel(data.lastMonth)}
+                </>
+              ) : (
+                <>
+                  <span
+                    className="font-semibold"
+                    style={{
+                      color:
+                        data.monthChange >= 0
+                          ? BRAND.moss
+                          : "#B4243F",
+                    }}
+                  >
+                    {data.monthChange >= 0 ? "+" : ""}
+                    {data.monthChange.toFixed(0)}%
+                  </span>{" "}
+                  on {monthLabel(data.lastMonth)}
+                </>
+              )}
+            </p>
+
+            {data.paidThisMonthTotal > 0 && (
+              <div
+                className="mt-6 pt-5"
+                style={{
+                  borderTop: `1px solid ${BRAND.line}`,
+                }}
+              >
+                <div
+                  className="flex h-2.5 overflow-hidden rounded-full"
+                  style={{ backgroundColor: "#F1ECEA" }}
+                >
+                  <div
+                    style={{
+                      width: `${percentage(
+                        data.myPaidThisMonth,
+                        data.paidThisMonthTotal
+                      )}%`,
+                      backgroundColor: BRAND.moss,
+                    }}
+                  />
+
+                  <div
+                    style={{
+                      width: `${percentage(
+                        data.otherPaidThisMonth,
+                        data.paidThisMonthTotal
+                      )}%`,
+                      backgroundColor: BRAND.blush,
+                    }}
+                  />
+                </div>
+
+                <div className="mt-3 flex justify-between text-sm">
+                  <span style={{ color: BRAND.mute }}>
+                    Yours{" "}
+                    <span
+                      className="font-semibold tabular-nums"
+                      style={{ color: BRAND.moss }}
+                    >
+                      {money(data.myPaidThisMonth)}
+                    </span>
+                  </span>
+
+                  <span style={{ color: BRAND.mute }}>
+                    Other company{" "}
+                    <span className="font-semibold tabular-nums">
+                      {money(data.otherPaidThisMonth)}
+                    </span>
+                  </span>
+                </div>
+              </div>
+            )}
+          </div>
+        </Panel>
+      </div>
+
+      {/* -------------------------------------------------- */}
+      {/* METRIC STRIP                                        */}
+      {/* -------------------------------------------------- */}
+
+      <Panel>
+        <div className="grid divide-y sm:grid-cols-2 sm:divide-y-0 xl:grid-cols-4">
+          {metrics.map((metric, index) => (
+            <div
+              key={metric.label}
+              className="px-6 py-5"
+              style={{
+                borderLeft:
+                  index > 0
+                    ? `1px solid ${BRAND.line}`
+                    : "none",
+                borderColor: BRAND.line,
+              }}
+            >
+              <p
+                className="text-sm font-medium"
+                style={{ color: BRAND.mute }}
+              >
+                {metric.label}
+              </p>
+
+              <p
+                className="mt-1.5 text-2xl font-semibold tabular-nums tracking-tight"
+                style={{
+                  color: metric.colour || BRAND.ink,
+                }}
+              >
+                {metric.value}
+              </p>
+
+              <p
+                className="mt-0.5 text-sm"
+                style={{ color: BRAND.mute }}
+              >
+                {metric.note}
+              </p>
             </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[760px] text-left">
-                <thead className="bg-slate-50 text-sm text-slate-500">
-                  <tr>
-                    <th className="px-4 py-3">
-                      Invoice
-                    </th>
-                    <th className="px-4 py-3">
-                      Client
-                    </th>
-                    <th className="px-4 py-3">
-                      Description
-                    </th>
-                    <th className="px-4 py-3 text-right">
-                      Total
-                    </th>
-                    <th className="px-4 py-3">
-                      Payment
-                    </th>
-                    <th className="px-4 py-3 text-center">
-                      Sent
-                    </th>
-                    <th className="px-4 py-3">
-                      Open
-                    </th>
-                  </tr>
-                </thead>
+          ))}
+        </div>
+      </Panel>
 
-                <tbody>
-                  {dashboardData.recentInvoices.map(
-                    (invoice) => (
+      {/* -------------------------------------------------- */}
+      {/* WHO OWES YOU                                        */}
+      {/* -------------------------------------------------- */}
+
+      <Panel>
+        <PanelHead
+          title={
+            activeBucketLabel
+              ? `Owing \u2014 ${activeBucketLabel.toLowerCase()}`
+              : "Who owes you the most"
+          }
+          note="Open a client to see their unpaid invoices"
+          action={
+            activeBucket ? (
+              <button
+                type="button"
+                onClick={() => setActiveBucket("")}
+                className="rounded-lg px-3.5 py-2 text-sm font-semibold"
+                style={{
+                  border: `1px solid ${BRAND.line}`,
+                  color: BRAND.ink,
+                }}
+              >
+                Show all
+              </button>
+            ) : (
+              <Link
+                href="/company-analytics"
+                className="text-sm font-semibold"
+                style={{ color: BRAND.magenta }}
+              >
+                Company analytics
+              </Link>
+            )
+          }
+        />
+
+        {visibleDebtors.length === 0 ? (
+          <div
+            className="p-12 text-center"
+            style={{ color: BRAND.mute }}
+          >
+            Nothing outstanding here.
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[760px] text-left">
+              <thead>
+                <tr
+                  className="text-sm"
+                  style={{
+                    color: BRAND.mute,
+                    backgroundColor: BRAND.wash,
+                  }}
+                >
+                  <th className="px-6 py-3 font-medium">
+                    Client
+                  </th>
+                  <th className="px-4 py-3 text-right font-medium">
+                    Invoices
+                  </th>
+                  <th className="px-4 py-3 text-center font-medium">
+                    Oldest
+                  </th>
+                  <th className="px-4 py-3 text-right font-medium">
+                    Yours
+                  </th>
+                  <th className="px-6 py-3 text-right font-medium">
+                    Owed
+                  </th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {visibleDebtors.map((debtor) => {
+                  const isOpen = openDebtor === debtor.key;
+
+                  return (
+                    <Fragment key={debtor.key}>
                       <tr
-                        key={invoice.id}
-                        className="border-t border-slate-200"
+                        onClick={() =>
+                          setOpenDebtor(
+                            isOpen ? "" : debtor.key
+                          )
+                        }
+                        className="cursor-pointer tabular-nums"
+                        style={{
+                          borderTop: `1px solid ${BRAND.line}`,
+                          backgroundColor: isOpen
+                            ? BRAND.wash
+                            : "transparent",
+                        }}
                       >
-                        <td className="px-4 py-4 font-bold">
-                          {invoice.invoice_number}
-                        </td>
+                        <td className="px-6 py-4">
+                          <div className="flex items-center gap-2.5">
+                            <span
+                              aria-hidden="true"
+                              className="select-none text-xs transition-transform"
+                              style={{
+                                color: BRAND.mute,
+                                transform: isOpen
+                                  ? "rotate(90deg)"
+                                  : "none",
+                              }}
+                            >
+                              &#9654;
+                            </span>
 
-                        <td className="px-4 py-4">
-                          {invoice.client
-                            ?.company_name ||
-                            invoice.client?.name ||
-                            invoice.customer_name ||
-                            "—"}
-                        </td>
+                            <span className="font-semibold">
+                              {debtor.name}
+                            </span>
 
-                        <td className="max-w-[330px] px-4 py-4">
-                          <div className="font-semibold text-slate-900">
-                            {getPropertyText(invoice)}
-                          </div>
-
-                          <div className="mt-1 text-sm text-slate-500">
-                            {getReportType(
-                              getDescription(invoice)
+                            {debtor.neverSentCount >
+                              0 && (
+                              <span
+                                className="rounded-full px-2 py-0.5 text-xs font-semibold"
+                                style={{
+                                  backgroundColor:
+                                    BRAND.blushSoft,
+                                  color: BRAND.magenta,
+                                }}
+                              >
+                                {debtor.neverSentCount}{" "}
+                                not sent
+                              </span>
                             )}
                           </div>
                         </td>
 
-                        <td className="px-4 py-4 text-right font-bold">
-                          {formatMoney(
-                            invoice.total
-                          )}
-                        </td>
-
-                        <td className="px-4 py-4">
-                          <span
-                            className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${
-                              invoice.status === "paid"
-                                ? "bg-green-100 text-green-700"
-                                : "bg-red-50 text-red-600"
-                            }`}
-                          >
-                            {paymentText(invoice)}
-                          </span>
+                        <td className="px-4 py-4 text-right">
+                          {debtor.count}
                         </td>
 
                         <td className="px-4 py-4 text-center">
-                          <span
-                            title={
-                              invoice.sent_at
-                                ? `Sent on ${formatDate(
-                                    invoice.sent_at
-                                  )}`
-                                : "Not sent"
-                            }
-                            className={`inline-flex h-7 w-7 items-center justify-center rounded-md border ${
-                              invoice.sent_at
-                                ? "border-green-600 bg-green-600 text-white"
-                                : "border-slate-300 bg-white text-slate-300"
-                            }`}
-                          >
-                            {invoice.sent_at ? (
-                              <svg
-                                viewBox="0 0 20 20"
-                                className="h-4 w-4"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="2.5"
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                aria-hidden="true"
-                              >
-                                <path d="M4 10.5 8 14.5 16 5.5" />
-                              </svg>
-                            ) : (
-                              <span className="h-2 w-2 rounded-sm bg-current" />
-                            )}
-                          </span>
+                          <AgeTag days={debtor.oldest} />
                         </td>
 
-                        <td className="px-4 py-4">
-                          <Link
-                            href={`/invoices/${invoice.id}`}
-                            className="font-semibold text-blue-600 hover:text-blue-800"
-                          >
-                            View
-                          </Link>
+                        <td
+                          className="px-4 py-4 text-right font-semibold"
+                          style={{ color: BRAND.moss }}
+                        >
+                          {money(debtor.mine)}
+                        </td>
+
+                        <td className="px-6 py-4 text-right text-lg font-semibold">
+                          {exactMoney(debtor.owed)}
                         </td>
                       </tr>
-                    )
-                  )}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
 
-        <div className="space-y-6">
-          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <h2 className="text-xl font-bold text-slate-900">
-              Payment overview
-            </h2>
+                      {isOpen &&
+                        debtor.rows.map((invoice) => (
+                          <tr
+                            key={invoice.id}
+                            className="text-sm tabular-nums"
+                            style={{
+                              borderTop: `1px solid ${BRAND.line}`,
+                              backgroundColor:
+                                BRAND.wash,
+                            }}
+                          >
+                            <td className="py-3 pl-14 pr-4">
+                              <Link
+                                href={`/invoices/${invoice.id}`}
+                                className="font-semibold"
+                                style={{
+                                  color: BRAND.magenta,
+                                }}
+                              >
+                                {invoice.invoice_number}
+                              </Link>
 
-            <div className="mt-5 space-y-4">
-              <div className="rounded-xl bg-slate-50 p-4">
-                <p className="text-sm text-slate-500">
-                  Average payment time
-                </p>
+                              <div
+                                className="mt-0.5"
+                                style={{
+                                  color: BRAND.mute,
+                                }}
+                              >
+                                {getPropertyText(invoice)}
+                              </div>
+                            </td>
 
-                <p className="mt-1 text-2xl font-bold">
-                  {
-                    dashboardData.averagePaymentDays
-                  }{" "}
-                  days
-                </p>
-              </div>
+                            <td
+                              className="px-4 py-3 text-right"
+                              style={{ color: BRAND.mute }}
+                            >
+                              {getReportType(invoice)}
+                            </td>
 
-              <div className="rounded-xl bg-slate-50 p-4">
-                <p className="text-sm text-slate-500">
-                  Oldest unpaid invoice
-                </p>
+                            <td className="px-4 py-3 text-center">
+                              <span
+                                style={{
+                                  color: BRAND.mute,
+                                }}
+                              >
+                                {shortDate(
+                                  invoice.issue_date
+                                )}
+                              </span>
+                            </td>
 
-                {dashboardData.oldestUnpaid ? (
-                  <>
-                    <div className="mt-2 flex items-center justify-between gap-4">
-                      <Link
-                        href={`/invoices/${dashboardData.oldestUnpaid.id}`}
-                        className="font-bold text-blue-600"
-                      >
-                        {
-                          dashboardData
-                            .oldestUnpaid
-                            .invoice_number
-                        }
-                      </Link>
+                            <td className="px-4 py-3 text-right">
+                              {invoice.sent_at ? (
+                                <span
+                                  style={{
+                                    color: BRAND.mute,
+                                  }}
+                                >
+                                  Sent{" "}
+                                  {shortDate(
+                                    invoice.sent_at
+                                  )}
+                                </span>
+                              ) : (
+                                <Link
+                                  href={`/invoices/${invoice.id}/email`}
+                                  className="rounded-md px-2.5 py-1 text-xs font-semibold"
+                                  style={{
+                                    border: `1px solid ${BRAND.magenta}`,
+                                    color: BRAND.magenta,
+                                  }}
+                                >
+                                  Send
+                                </Link>
+                              )}
+                            </td>
 
-                      <span className="font-semibold text-red-600">
-                        Unpaid for{" "}
-                        {daysBetween(
-                          dashboardData
-                            .oldestUnpaid
-                            .issue_date
-                        )}{" "}
-                        days
-                      </span>
-                    </div>
-
-                    <p className="mt-2 text-sm text-slate-600">
-                      {getPropertyText(
-                        dashboardData.oldestUnpaid
-                      )}
-                    </p>
-                  </>
-                ) : (
-                  <p className="mt-2 font-semibold text-green-700">
-                    No unpaid invoices
-                  </p>
-                )}
-              </div>
-
-              <div className="rounded-xl bg-slate-50 p-4">
-                <p className="text-sm text-slate-500">
-                  Paid invoices
-                </p>
-
-                <p className="mt-1 text-2xl font-bold text-green-700">
-                  {
-                    dashboardData.paidInvoices
-                      .length
-                  }
-                </p>
-              </div>
-            </div>
+                            <td className="px-6 py-3 text-right font-semibold">
+                              {exactMoney(
+                                invoice.balance
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                    </Fragment>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
+        )}
+      </Panel>
 
-          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <h2 className="text-xl font-bold text-slate-900">
-              Sending overview
-            </h2>
+      {/* -------------------------------------------------- */}
+      {/* TREND                                               */}
+      {/* -------------------------------------------------- */}
 
-            <div className="mt-5 grid grid-cols-2 gap-3">
-              <div className="rounded-xl bg-green-50 p-4">
-                <p className="text-sm font-semibold text-green-700">
-                  Sent
-                </p>
+      <Panel>
+        <PanelHead
+          title="Invoiced against collected"
+          note="The last six months"
+        />
 
-                <p className="mt-1 text-3xl font-bold text-green-800">
-                  {dashboardData.sentCount}
-                </p>
-              </div>
-
-              <div className="rounded-xl bg-amber-50 p-4">
-                <p className="text-sm font-semibold text-amber-700">
-                  Not sent
-                </p>
-
-                <p className="mt-1 text-3xl font-bold text-amber-800">
-                  {dashboardData.notSentCount}
-                </p>
-              </div>
-            </div>
-
-            <Link
-              href="/invoices"
-              className="mt-4 block rounded-lg border border-slate-300 px-4 py-2 text-center font-semibold text-slate-700 hover:bg-slate-50"
-            >
-              Review invoice sending
-            </Link>
-          </div>
+        <div className="p-6">
+          <TrendChart months={data.trend} />
         </div>
-      </section>
+      </Panel>
     </div>
   );
 }
