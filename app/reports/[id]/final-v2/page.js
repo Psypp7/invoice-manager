@@ -263,8 +263,7 @@ function buildPhotoLines(
 
   const model =
     text(
-      v2.model_number ||
-      v2.model
+      v2.model_number
     );
 
   if (
