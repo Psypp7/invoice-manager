@@ -317,8 +317,23 @@ function PanelHead({ title, note, action }) {
   );
 }
 
-function AgeTag({ days }) {
+function AgeTag({ days, muted = false }) {
   const bucket = bucketFor(days);
+
+  if (muted) {
+    return (
+      <span
+        className="inline-block whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-semibold tabular-nums"
+        style={{
+          backgroundColor: BRAND.wash,
+          color: BRAND.mute,
+          border: `1px solid ${BRAND.line}`,
+        }}
+      >
+        {days}d
+      </span>
+    );
+  }
 
   return (
     <span
@@ -328,7 +343,7 @@ function AgeTag({ days }) {
         color: bucket.onColour,
       }}
     >
-      {days} {days === 1 ? "day" : "days"}
+      {days}d
     </span>
   );
 }
@@ -502,6 +517,8 @@ export default function DashboardPage() {
   const [message, setMessage] = useState("");
   const [activeBucket, setActiveBucket] = useState("");
   const [openDebtor, setOpenDebtor] = useState("");
+  const [showAllUnsent, setShowAllUnsent] =
+    useState(false);
 
   useEffect(() => {
     initialiseDashboard();
@@ -551,13 +568,11 @@ export default function DashboardPage() {
             paid_at,
             sent_at,
             customer_name,
-            customer_email,
             client_id,
             client:clients(
               id,
               name,
-              company_name,
-              email
+              company_name
             ),
             invoice_items(
               id,
@@ -604,19 +619,41 @@ export default function DashboardPage() {
       (invoice) => invoice.status !== "cancelled"
     );
 
-    const unpaid = active
-      .filter((invoice) => balanceOf(invoice) > 0)
-      .map((invoice) => {
-        const age = daysBetween(invoice.issue_date);
+    const withAge = active.map((invoice) => {
+      const age = daysBetween(invoice.issue_date);
 
-        return {
-          ...invoice,
-          age,
-          balance: balanceOf(invoice),
-          bucket: bucketFor(age).id,
-        };
-      })
+      return {
+        ...invoice,
+        age,
+        balance: balanceOf(invoice),
+        bucket: bucketFor(age).id,
+      };
+    });
+
+    const unpaid = withAge
+      .filter((invoice) => invoice.balance > 0)
       .sort((first, second) => second.age - first.age);
+
+    // --- sent / not sent -----------------------------------
+    const sent = withAge.filter(
+      (invoice) => invoice.sent_at
+    );
+
+    const unsent = withAge
+      .filter((invoice) => !invoice.sent_at)
+      .sort((first, second) => {
+        // Unpaid and unsent is the worst case, show it first.
+        const firstOpen = first.balance > 0 ? 0 : 1;
+        const secondOpen = second.balance > 0 ? 0 : 1;
+
+        return (
+          firstOpen - secondOpen || second.age - first.age
+        );
+      });
+
+    const unsentUnpaid = unsent.filter(
+      (invoice) => invoice.balance > 0
+    );
 
     const buckets = AGE_BUCKETS.map((bucket) => {
       const rows = unpaid.filter(
@@ -645,12 +682,8 @@ export default function DashboardPage() {
       return sum + myShareOf(invoice) * rate;
     }, 0);
 
-    const neverSent = unpaid.filter(
-      (invoice) => !invoice.sent_at
-    );
-
-    // Debt grouped by client. Chasing happens per client,
-    // not per invoice, so this is the list that gets used.
+    // --- debt grouped by client ----------------------------
+    // Chasing happens per client, not per invoice.
     const debtorMap = new Map();
 
     for (const invoice of unpaid) {
@@ -662,15 +695,10 @@ export default function DashboardPage() {
         debtorMap.set(key, {
           key,
           name: clientLabel(invoice),
-          email:
-            invoice.client?.email ||
-            invoice.customer_email ||
-            "",
           owed: 0,
           mine: 0,
           count: 0,
-          neverSentCount: 0,
-          oldest: 0,
+          unsentCount: 0,
           rows: [],
         });
       }
@@ -682,23 +710,28 @@ export default function DashboardPage() {
       debtor.owed += invoice.balance;
       debtor.mine += myShareOf(invoice) * rate;
       debtor.count += 1;
-      debtor.oldest = Math.max(debtor.oldest, invoice.age);
       debtor.rows.push(invoice);
 
-      if (!invoice.sent_at) debtor.neverSentCount += 1;
+      if (!invoice.sent_at) debtor.unsentCount += 1;
     }
 
     const debtors = Array.from(debtorMap.values())
-      .map((debtor) => ({
-        ...debtor,
-        rows: debtor.rows.sort(
+      .map((debtor) => {
+        const rows = debtor.rows.sort(
           (first, second) => second.age - first.age
-        ),
-      }))
+        );
+
+        return {
+          ...debtor,
+          rows,
+          oldest: rows[0],
+          newest: rows[rows.length - 1],
+        };
+      })
       .sort(
         (first, second) =>
           second.owed - first.owed ||
-          second.oldest - first.oldest
+          second.oldest.age - first.oldest.age
       );
 
     const paidIn = (key) =>
@@ -774,16 +807,19 @@ export default function DashboardPage() {
       );
     })();
 
-    const jobsThisMonth = issuedIn(thisMonth).length;
-    const jobsLastMonth = issuedIn(lastMonth).length;
-
     return {
       active,
       unpaid,
+      sent,
+      unsent,
+      unsentUnpaid,
+      unsentValue: unsent.reduce(
+        (sum, invoice) => sum + Number(invoice.total || 0),
+        0
+      ),
       buckets,
       outstanding,
       myOutstanding,
-      neverSent,
       debtors,
       trend,
       thisMonth,
@@ -800,8 +836,8 @@ export default function DashboardPage() {
       averageInvoiceValue: active.length
         ? sumTotal(active) / active.length
         : 0,
-      jobsThisMonth,
-      jobsLastMonth,
+      jobsThisMonth: issuedIn(thisMonth).length,
+      jobsLastMonth: issuedIn(lastMonth).length,
       monthChange:
         paidLastMonthTotal > 0
           ? ((paidThisMonthTotal - paidLastMonthTotal) /
@@ -828,16 +864,26 @@ export default function DashboardPage() {
             (sum, invoice) => sum + invoice.balance,
             0
           ),
-          oldest: rows.reduce(
-            (top, invoice) => Math.max(top, invoice.age),
-            0
-          ),
+          mine: rows.reduce((sum, invoice) => {
+            const total = Number(invoice.total || 0);
+
+            const rate =
+              total > 0 ? invoice.balance / total : 1;
+
+            return sum + myShareOf(invoice) * rate;
+          }, 0),
+          oldest: rows[0],
+          newest: rows[rows.length - 1],
         };
       })
       .filter((debtor) => debtor.rows.length > 0)
       .sort((first, second) => second.owed - first.owed)
       .slice(0, 8);
   }, [data.debtors, activeBucket]);
+
+  const visibleUnsent = showAllUnsent
+    ? data.unsent
+    : data.unsent.slice(0, 6);
 
   if (loading) {
     return (
@@ -957,53 +1003,15 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {data.neverSent.length > 0 && (
-        <div
-          className="flex flex-col gap-3 rounded-xl px-5 py-4 sm:flex-row sm:items-center sm:justify-between"
-          style={{
-            backgroundColor: "#FDF2F8",
-            border: `1px solid ${BRAND.blush}`,
-          }}
-        >
-          <p className="text-sm">
-            <span className="font-semibold tabular-nums">
-              {data.neverSent.length}
-            </span>{" "}
-            unpaid{" "}
-            {data.neverSent.length === 1
-              ? "invoice has"
-              : "invoices have"}{" "}
-            never been emailed, worth{" "}
-            <span className="font-semibold tabular-nums">
-              {money(
-                data.neverSent.reduce(
-                  (sum, invoice) => sum + invoice.balance,
-                  0
-                )
-              )}
-            </span>
-            .
-          </p>
-
-          <Link
-            href="/invoices"
-            className="shrink-0 text-sm font-semibold"
-            style={{ color: BRAND.magenta }}
-          >
-            Send them
-          </Link>
-        </div>
-      )}
-
       {/* -------------------------------------------------- */}
-      {/* OWED  +  MONEY IN                                   */}
+      {/* OWED  +  PAID                                       */}
       {/* -------------------------------------------------- */}
 
       <div className="grid gap-5 xl:grid-cols-[1.5fr_1fr]">
         <Panel>
           <PanelHead
             title="Invoices owed to you"
-            note="Select a column to narrow the list below"
+            note="Select a column to narrow the client list"
           />
 
           <div className="p-6">
@@ -1149,7 +1157,7 @@ export default function DashboardPage() {
       {/* -------------------------------------------------- */}
 
       <Panel>
-        <div className="grid divide-y sm:grid-cols-2 sm:divide-y-0 xl:grid-cols-4">
+        <div className="grid sm:grid-cols-2 xl:grid-cols-4">
           {metrics.map((metric, index) => (
             <div
               key={metric.label}
@@ -1159,7 +1167,6 @@ export default function DashboardPage() {
                   index > 0
                     ? `1px solid ${BRAND.line}`
                     : "none",
-                borderColor: BRAND.line,
               }}
             >
               <p
@@ -1190,6 +1197,231 @@ export default function DashboardPage() {
       </Panel>
 
       {/* -------------------------------------------------- */}
+      {/* SENT / NOT SENT                                     */}
+      {/* -------------------------------------------------- */}
+
+      <Panel>
+        <PanelHead
+          title="Sent to the client"
+          note="An invoice that was never emailed cannot be paid"
+        />
+
+        <div className="p-6">
+          <div className="flex flex-wrap items-baseline gap-x-8 gap-y-3">
+            <div>
+              <p
+                className="text-sm font-medium"
+                style={{ color: BRAND.mute }}
+              >
+                Sent
+              </p>
+
+              <p
+                className="mt-1 text-3xl font-semibold tabular-nums"
+                style={{ color: BRAND.moss }}
+              >
+                {data.sent.length}
+              </p>
+            </div>
+
+            <div>
+              <p
+                className="text-sm font-medium"
+                style={{ color: BRAND.mute }}
+              >
+                Not sent
+              </p>
+
+              <p
+                className="mt-1 text-3xl font-semibold tabular-nums"
+                style={{
+                  color:
+                    data.unsent.length > 0
+                      ? BRAND.magenta
+                      : BRAND.mute,
+                }}
+              >
+                {data.unsent.length}
+              </p>
+            </div>
+
+            {data.unsent.length > 0 && (
+              <p
+                className="text-sm"
+                style={{ color: BRAND.mute }}
+              >
+                worth{" "}
+                <span className="font-semibold tabular-nums">
+                  {money(data.unsentValue)}
+                </span>
+                , of which{" "}
+                <span className="font-semibold tabular-nums">
+                  {data.unsentUnpaid.length}
+                </span>{" "}
+                {data.unsentUnpaid.length === 1
+                  ? "is"
+                  : "are"}{" "}
+                still unpaid
+              </p>
+            )}
+          </div>
+
+          <div
+            className="mt-5 flex h-2.5 overflow-hidden rounded-full"
+            style={{ backgroundColor: "#F1ECEA" }}
+          >
+            <div
+              style={{
+                width: `${percentage(
+                  data.sent.length,
+                  data.active.length
+                )}%`,
+                backgroundColor: BRAND.moss,
+              }}
+            />
+
+            <div
+              style={{
+                width: `${percentage(
+                  data.unsent.length,
+                  data.active.length
+                )}%`,
+                backgroundColor: BRAND.magenta,
+              }}
+            />
+          </div>
+        </div>
+
+        {data.unsent.length > 0 && (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[760px] text-left">
+              <thead>
+                <tr
+                  className="text-sm"
+                  style={{
+                    color: BRAND.mute,
+                    backgroundColor: BRAND.wash,
+                  }}
+                >
+                  <th className="px-6 py-3 font-medium">
+                    Invoice
+                  </th>
+                  <th className="px-4 py-3 font-medium">
+                    Client
+                  </th>
+                  <th className="px-4 py-3 font-medium">
+                    Issued
+                  </th>
+                  <th className="px-4 py-3 text-center font-medium">
+                    Waiting
+                  </th>
+                  <th className="px-4 py-3 text-right font-medium">
+                    Amount
+                  </th>
+                  <th className="px-6 py-3 text-right font-medium">
+                    Action
+                  </th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {visibleUnsent.map((invoice) => (
+                  <tr
+                    key={invoice.id}
+                    className="tabular-nums"
+                    style={{
+                      borderTop: `1px solid ${BRAND.line}`,
+                    }}
+                  >
+                    <td className="px-6 py-4">
+                      <Link
+                        href={`/invoices/${invoice.id}`}
+                        className="font-semibold"
+                        style={{ color: BRAND.magenta }}
+                      >
+                        {invoice.invoice_number}
+                      </Link>
+
+                      <div
+                        className="mt-0.5 max-w-[260px] text-sm"
+                        style={{ color: BRAND.mute }}
+                      >
+                        {getPropertyText(invoice)}
+                      </div>
+                    </td>
+
+                    <td className="px-4 py-4">
+                      {clientLabel(invoice)}
+                    </td>
+
+                    <td
+                      className="px-4 py-4"
+                      style={{ color: BRAND.mute }}
+                    >
+                      {shortDate(invoice.issue_date)}
+                    </td>
+
+                    <td className="px-4 py-4 text-center">
+                      <AgeTag
+                        days={invoice.age}
+                        muted={invoice.balance === 0}
+                      />
+                    </td>
+
+                    <td className="px-4 py-4 text-right font-semibold">
+                      {invoice.balance > 0 ? (
+                        exactMoney(invoice.balance)
+                      ) : (
+                        <span
+                          style={{ color: BRAND.mute }}
+                        >
+                          Paid
+                        </span>
+                      )}
+                    </td>
+
+                    <td className="px-6 py-4 text-right">
+                      <Link
+                        href={`/invoices/${invoice.id}/email`}
+                        className="inline-flex rounded-lg px-3 py-1.5 text-sm font-semibold text-white"
+                        style={{
+                          backgroundColor: BRAND.magenta,
+                        }}
+                      >
+                        Send
+                      </Link>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+
+            {data.unsent.length > 6 && (
+              <div
+                className="px-6 py-4"
+                style={{
+                  borderTop: `1px solid ${BRAND.line}`,
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={() =>
+                    setShowAllUnsent(!showAllUnsent)
+                  }
+                  className="text-sm font-semibold"
+                  style={{ color: BRAND.magenta }}
+                >
+                  {showAllUnsent
+                    ? "Show fewer"
+                    : `Show all ${data.unsent.length} unsent invoices`}
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+      </Panel>
+
+      {/* -------------------------------------------------- */}
       {/* WHO OWES YOU                                        */}
       {/* -------------------------------------------------- */}
 
@@ -1200,7 +1432,7 @@ export default function DashboardPage() {
               ? `Owing \u2014 ${activeBucketLabel.toLowerCase()}`
               : "Who owes you the most"
           }
-          note="Open a client to see their unpaid invoices"
+          note="Oldest and newest unpaid invoice for each client"
           action={
             activeBucket ? (
               <button
@@ -1235,7 +1467,7 @@ export default function DashboardPage() {
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[760px] text-left">
+            <table className="w-full min-w-[900px] text-left">
               <thead>
                 <tr
                   className="text-sm"
@@ -1250,8 +1482,11 @@ export default function DashboardPage() {
                   <th className="px-4 py-3 text-right font-medium">
                     Invoices
                   </th>
-                  <th className="px-4 py-3 text-center font-medium">
-                    Oldest
+                  <th className="px-4 py-3 font-medium">
+                    Oldest owed
+                  </th>
+                  <th className="px-4 py-3 font-medium">
+                    Newest owed
                   </th>
                   <th className="px-4 py-3 text-right font-medium">
                     Yours
@@ -1301,8 +1536,7 @@ export default function DashboardPage() {
                               {debtor.name}
                             </span>
 
-                            {debtor.neverSentCount >
-                              0 && (
+                            {debtor.unsentCount > 0 && (
                               <span
                                 className="rounded-full px-2 py-0.5 text-xs font-semibold"
                                 style={{
@@ -1311,8 +1545,8 @@ export default function DashboardPage() {
                                   color: BRAND.magenta,
                                 }}
                               >
-                                {debtor.neverSentCount}{" "}
-                                not sent
+                                {debtor.unsentCount} not
+                                sent
                               </span>
                             )}
                           </div>
@@ -1322,8 +1556,62 @@ export default function DashboardPage() {
                           {debtor.count}
                         </td>
 
-                        <td className="px-4 py-4 text-center">
-                          <AgeTag days={debtor.oldest} />
+                        <td className="px-4 py-4">
+                          <div className="flex items-center gap-2">
+                            <AgeTag
+                              days={debtor.oldest.age}
+                            />
+
+                            <span
+                              className="text-sm"
+                              style={{ color: BRAND.mute }}
+                            >
+                              {
+                                debtor.oldest
+                                  .invoice_number
+                              }
+                            </span>
+                          </div>
+
+                          <div
+                            className="mt-1 text-sm"
+                            style={{ color: BRAND.mute }}
+                          >
+                            {shortDate(
+                              debtor.oldest.issue_date
+                            )}{" "}
+                            &middot;{" "}
+                            {money(debtor.oldest.balance)}
+                          </div>
+                        </td>
+
+                        <td className="px-4 py-4">
+                          <div className="flex items-center gap-2">
+                            <AgeTag
+                              days={debtor.newest.age}
+                            />
+
+                            <span
+                              className="text-sm"
+                              style={{ color: BRAND.mute }}
+                            >
+                              {
+                                debtor.newest
+                                  .invoice_number
+                              }
+                            </span>
+                          </div>
+
+                          <div
+                            className="mt-1 text-sm"
+                            style={{ color: BRAND.mute }}
+                          >
+                            {shortDate(
+                              debtor.newest.issue_date
+                            )}{" "}
+                            &middot;{" "}
+                            {money(debtor.newest.balance)}
+                          </div>
                         </td>
 
                         <td
@@ -1345,8 +1633,7 @@ export default function DashboardPage() {
                             className="text-sm tabular-nums"
                             style={{
                               borderTop: `1px solid ${BRAND.line}`,
-                              backgroundColor:
-                                BRAND.wash,
+                              backgroundColor: BRAND.wash,
                             }}
                           >
                             <td className="py-3 pl-14 pr-4">
@@ -1377,19 +1664,16 @@ export default function DashboardPage() {
                               {getReportType(invoice)}
                             </td>
 
-                            <td className="px-4 py-3 text-center">
-                              <span
-                                style={{
-                                  color: BRAND.mute,
-                                }}
-                              >
-                                {shortDate(
-                                  invoice.issue_date
-                                )}
-                              </span>
+                            <td
+                              className="px-4 py-3"
+                              style={{ color: BRAND.mute }}
+                            >
+                              {shortDate(
+                                invoice.issue_date
+                              )}
                             </td>
 
-                            <td className="px-4 py-3 text-right">
+                            <td className="px-4 py-3">
                               {invoice.sent_at ? (
                                 <span
                                   style={{
@@ -1415,10 +1699,12 @@ export default function DashboardPage() {
                               )}
                             </td>
 
+                            <td className="px-4 py-3 text-right">
+                              <AgeTag days={invoice.age} />
+                            </td>
+
                             <td className="px-6 py-3 text-right font-semibold">
-                              {exactMoney(
-                                invoice.balance
-                              )}
+                              {exactMoney(invoice.balance)}
                             </td>
                           </tr>
                         ))}
