@@ -90,4 +90,4 @@ export const INVENTORY_V2 = {
 // Change this whenever we materially improve the V2 prompt.
 // Existing V2 results will then automatically be re-analysed.
 export const INVENTORY_V2_VERSION =
-  "right-inventories-v2.1";
+  "right-inventories-v2.2-house-style";
