@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../../../lib/supabase";
+import { fetchActiveBusiness } from "../../../lib/activeBusiness";
 
 function formatMoney(value) {
   return new Intl.NumberFormat("en-GB", {
@@ -69,11 +70,11 @@ export default function DeletedInvoicesPage() {
       const {
         data: businessData,
         error: businessError,
-      } = await supabase
-        .from("businesses")
-        .select("id, business_name")
-        .eq("owner_user_id", user.id)
-        .single();
+      } = await fetchActiveBusiness(
+        supabase,
+        user.id,
+        "id, business_name"
+      );
 
       if (businessError) {
         throw businessError;

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../../lib/supabase";
+import { fetchActiveBusiness } from "../../lib/activeBusiness";
 
 const emptyForm = {
   client_type: "agent",
@@ -49,18 +50,18 @@ export default function ClientsPage() {
         throw new Error("You must sign in before viewing clients.");
       }
 
-      const { data: business, error: businessError } = await supabase
-        .from("businesses")
-        .select("id")
-        .eq("owner_user_id", user.id)
-        .single();
+      const { data: business, error: businessError } = await fetchActiveBusiness(
+        supabase,
+        user.id,
+        "id"
+      );
 
       if (businessError) {
         throw businessError;
       }
 
-      setBusinessId(business.id);
-      await loadClients(business.id);
+      setBusinessId(business.client_book_id);
+      await loadClients(business.client_book_id);
     } catch (error) {
       console.error(error);
       setMessage(error?.message || "Could not load the clients page.");

@@ -7,6 +7,7 @@ import {
   useState,
 } from "react";
 import { supabase } from "../../lib/supabase";
+import { fetchActiveBusiness } from "../../lib/activeBusiness";
 
 const MONTHS = [
   "Jan",
@@ -405,11 +406,11 @@ export default function CompanyAnalyticsPage() {
       const {
         data: business,
         error: businessError,
-      } = await supabase
-        .from("businesses")
-        .select("id")
-        .eq("owner_user_id", user.id)
-        .single();
+      } = await fetchActiveBusiness(
+        supabase,
+        user.id,
+        "id"
+      );
 
       if (businessError || !business) {
         throw (

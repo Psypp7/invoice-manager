@@ -5,6 +5,11 @@ import { renderToBuffer } from "@react-pdf/renderer";
 import InvoicePdf from "../../../components/InvoicePdf";
 import { createInvoicePdfFilename } from "../../../lib/invoiceFileName";
 import { createClient } from "../../../lib/supabase/server";
+import {
+  fetchActiveBusiness,
+  fetchInvoiceBranding,
+  ACTIVE_BUSINESS_COOKIE,
+} from "../../../lib/activeBusiness";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -154,11 +159,12 @@ export async function POST(request) {
     const {
       data: business,
       error: businessError,
-    } = await supabase
-      .from("businesses")
-      .select("id")
-      .eq("owner_user_id", user.id)
-      .single();
+    } = await fetchActiveBusiness(
+        supabase,
+        user.id,
+        "id",
+        request.cookies.get(ACTIVE_BUSINESS_COOKIE)?.value || null
+      );
 
     if (businessError || !business) {
       throw businessError || new Error("Business not found.");
@@ -217,6 +223,11 @@ export async function POST(request) {
       );
     }
 
+    const branding = await fetchInvoiceBranding(
+      supabase,
+      business.id
+    );
+
     const files = [];
 
     for (const invoice of orderedInvoices) {
@@ -237,6 +248,7 @@ export async function POST(request) {
         InvoicePdf,
         {
           invoice: completeInvoice,
+          branding,
         }
       );
 

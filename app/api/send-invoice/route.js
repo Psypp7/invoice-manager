@@ -6,6 +6,11 @@ import { renderToBuffer } from "@react-pdf/renderer";
 import InvoicePdf from "../../../components/InvoicePdf";
 import { createInvoicePdfFilename } from "../../../lib/invoiceFileName";
 import { createClient } from "../../../lib/supabase/server";
+import {
+  fetchActiveBusiness,
+  fetchInvoiceBranding,
+  ACTIVE_BUSINESS_COOKIE,
+} from "../../../lib/activeBusiness";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -174,14 +179,24 @@ export async function POST(request) {
       );
     }
 
+    // The invoice belongs to one of the signed-in user's companies.
+    // Check that company, not just whichever one is selected.
     const {
       data: businessRecord,
       error: businessError,
-    } = await supabase
-      .from("businesses")
-      .select("id")
-      .eq("owner_user_id", user.id)
-      .single();
+    } = invoice.business_id
+      ? await supabase
+          .from("businesses")
+          .select("id")
+          .eq("id", invoice.business_id)
+          .eq("owner_user_id", user.id)
+          .maybeSingle()
+      : await fetchActiveBusiness(
+          supabase,
+          user.id,
+          "id",
+          request.cookies.get(ACTIVE_BUSINESS_COOKIE)?.value || null
+        );
 
     if (businessError || !businessRecord) {
       return NextResponse.json(
@@ -213,6 +228,10 @@ export async function POST(request) {
         {
           invoice,
           business,
+          branding: await fetchInvoiceBranding(
+            supabase,
+            businessRecord.id
+          ),
         }
       );
 

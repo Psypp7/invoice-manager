@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../../../lib/supabase";
+import { fetchActiveBusiness } from "../../../lib/activeBusiness";
 
 const defaultSubject = "Invoice for {{property_address}}";
 
@@ -76,17 +77,17 @@ export default function InvoiceEmailSettingsPage() {
         throw new Error("You must sign in first.");
       }
 
-      const { data, error } = await supabase
-        .from("businesses")
-        .select(`
+      const { data, error } = await fetchActiveBusiness(
+        supabase,
+        user.id,
+        `
           id,
           invoice_email_sender_name,
           invoice_email_reply_to,
           invoice_email_subject,
           invoice_email_body
-        `)
-        .eq("owner_user_id", user.id)
-        .single();
+        `
+      );
 
       if (error) {
         throw error;

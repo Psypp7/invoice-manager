@@ -9,6 +9,7 @@ import {
   useState,
 } from "react";
 import { supabase } from "../lib/supabase";
+import { fetchActiveBusiness } from "../lib/activeBusiness";
 
 // ============================================================
 // BRAND
@@ -515,6 +516,7 @@ export default function DashboardPage() {
   const [invoices, setInvoices] = useState([]);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
+  const [companyName, setCompanyName] = useState("");
   const [activeBucket, setActiveBucket] = useState("");
   const [openDebtor, setOpenDebtor] = useState("");
   const [showAllUnsent, setShowAllUnsent] =
@@ -540,11 +542,11 @@ export default function DashboardPage() {
       }
 
       const { data: business, error: businessError } =
-        await supabase
-          .from("businesses")
-          .select("id")
-          .eq("owner_user_id", user.id)
-          .single();
+        await fetchActiveBusiness(
+        supabase,
+        user.id,
+        "id, business_name"
+      );
 
       if (businessError || !business) {
         throw (
@@ -552,6 +554,8 @@ export default function DashboardPage() {
           new Error("Business not found.")
         );
       }
+
+      setCompanyName(business.business_name || "");
 
       const { data, error } = await supabase
         .from("invoices")
@@ -963,7 +967,7 @@ export default function DashboardPage() {
 
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">
-              Right Inventories London
+              {companyName || "Right Inventories London"}
             </h1>
 
             <p

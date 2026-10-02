@@ -9,6 +9,7 @@ import {
 import InvoicePdf from "../../../components/InvoicePdf";
 import { supabase } from "../../../lib/supabase";
 import { createInvoicePdfFilename } from "../../../lib/invoiceFileName";
+import { fetchInvoiceBranding } from "../../../lib/activeBusiness";
 
 export default function InvoiceDocumentPage() {
   const params = useParams();
@@ -18,6 +19,7 @@ export default function InvoiceDocumentPage() {
 
   const [invoice, setInvoice] = useState(null);
   const [business, setBusiness] = useState(null);
+  const [branding, setBranding] = useState(null);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
 
@@ -95,8 +97,15 @@ export default function InvoiceDocumentPage() {
           Number(second.sort_order)
       );
 
+      const brandingData =
+        await fetchInvoiceBranding(
+          supabase,
+          invoiceData.business_id
+        );
+
       setInvoice(invoiceData);
       setBusiness(businessData);
+      setBranding(brandingData);
     } catch (error) {
       console.error(error);
 
@@ -168,6 +177,7 @@ export default function InvoiceDocumentPage() {
               <InvoicePdf
                 invoice={invoice}
                 business={business}
+                branding={branding}
               />
             }
             fileName={fileName}
@@ -192,6 +202,7 @@ export default function InvoiceDocumentPage() {
             <InvoicePdf
               invoice={invoice}
               business={business}
+              branding={branding}
             />
           </PDFViewer>
         </div>

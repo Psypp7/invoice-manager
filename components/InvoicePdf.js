@@ -285,7 +285,42 @@ function splitAddress(value) {
     .filter(Boolean);
 }
 
-export default function InvoicePdf({ invoice }) {
+// Right Inventories London's letterhead, exactly as it has always been.
+// Used whenever no branding is passed in, so London invoices never change.
+const LONDON_BRANDING = {
+  brandLine: "right inventories london",
+  legalName: "Right Inventories London Ltd",
+  addressLines: [
+    "145 Kings Road",
+    "Harrow, Middlesex HA2 9LE",
+  ],
+  phone: "07866611413",
+  website: "www.rightinventories.co.uk",
+  bankName: "HSBC Bank",
+  sortCode: "40-46-09",
+  accountNumber: "92210193",
+};
+
+function websiteHref(value) {
+  const text = String(value || "").trim();
+
+  if (!text) return "";
+
+  return /^https?:\/\//i.test(text)
+    ? text
+    : `https://${text}`;
+}
+
+function websiteLabel(value) {
+  return String(value || "")
+    .trim()
+    .replace(/^https?:\/\//i, "")
+    .replace(/\/$/, "");
+}
+
+export default function InvoicePdf({ invoice, branding }) {
+  const brand = branding || LONDON_BRANDING;
+
   const items = Array.isArray(invoice?.invoice_items)
     ? invoice.invoice_items
     : [];
@@ -297,12 +332,12 @@ export default function InvoicePdf({ invoice }) {
   return (
     <Document
       title={`${invoice?.invoice_number || "Invoice"}.pdf`}
-      author="Right Inventories London Ltd"
+      author={brand.legalName}
       subject="Invoice"
     >
       <Page size={[612, 792]} style={styles.page}>
         <Text style={styles.brand}>
-          right inventories london
+          {brand.brandLine}
         </Text>
 
         <Text style={styles.invoiceTitle}>
@@ -311,30 +346,47 @@ export default function InvoicePdf({ invoice }) {
 
         <View style={styles.businessBlock}>
           <Text style={styles.businessName}>
-            Right Inventories London Ltd
+            {brand.legalName}
           </Text>
 
-          <Text style={styles.businessLine}>
-            145 Kings Road
-          </Text>
+          {brand.addressLines.map((line, index) => (
+            <Text
+              key={`address-${index}`}
+              style={styles.businessLine}
+            >
+              {line}
+            </Text>
+          ))}
 
-          <Text style={styles.businessLine}>
-            Harrow, Middlesex HA2 9LE
-          </Text>
+          {brand.phone ? (
+            <Text style={styles.businessLine}>
+              Tel. {brand.phone}
+            </Text>
+          ) : null}
 
-          <Text style={styles.businessLine}>
-            Tel. 07866611413
-          </Text>
+          {brand.website ? (
+            <Link
+              src={websiteHref(brand.website)}
+              style={[
+                styles.businessLine,
+                styles.website,
+              ]}
+            >
+              {websiteLabel(brand.website)}
+            </Link>
+          ) : null}
 
-          <Link
-            src="https://www.rightinventories.co.uk"
-            style={[
-              styles.businessLine,
-              styles.website,
-            ]}
-          >
-            www.rightinventories.co.uk
-          </Link>
+          {brand.email ? (
+            <Link
+              src={`mailto:${brand.email}`}
+              style={[
+                styles.businessLine,
+                styles.website,
+              ]}
+            >
+              {brand.email}
+            </Link>
+          ) : null}
         </View>
 
         <View style={styles.invoiceInfoBlock}>
@@ -428,16 +480,24 @@ export default function InvoicePdf({ invoice }) {
             Bank details
           </Text>
 
+          {brand.accountName ? (
+            <Text style={styles.footerLine}>
+              {brand.accountName}
+            </Text>
+          ) : null}
+
+          {brand.bankName ? (
+            <Text style={styles.footerLine}>
+              {brand.bankName}
+            </Text>
+          ) : null}
+
           <Text style={styles.footerLine}>
-            HSBC Bank
+            Sort Code {brand.sortCode || "not set"}
           </Text>
 
           <Text style={styles.footerLine}>
-            Sort Code 40-46-09
-          </Text>
-
-          <Text style={styles.footerLine}>
-            Account 92210193
+            Account {brand.accountNumber || "not set"}
           </Text>
         </View>
 

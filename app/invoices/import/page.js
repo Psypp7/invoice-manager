@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import * as XLSX from "xlsx";
 import { supabase } from "../../../lib/supabase";
+import { fetchActiveBusiness } from "../../../lib/activeBusiness";
 
 function clean(value) {
   return String(value ?? "").trim();
@@ -24,15 +25,17 @@ function normaliseInvoiceNumber(value) {
     .replace(/\s+/g, "");
 }
 
+// Letters then at least four digits: RL1045 for Right Inventories
+// London, RI1001 for Right Inventories, and so on.
 function validInvoiceNumber(value) {
-  return /^RL\d{4,}$/.test(
+  return /^[A-Z]{1,6}\d{4,}$/.test(
     normaliseInvoiceNumber(value)
   );
 }
 
 function invoiceNumberValue(value) {
   const match = normaliseInvoiceNumber(value).match(
-    /^RL(\d+)$/
+    /^[A-Z]{1,6}(\d+)$/
   );
 
   return match ? Number(match[1]) : -1;
@@ -400,13 +403,11 @@ export default function ImportInvoicesPage() {
     const {
       data: businessData,
       error: businessError,
-    } = await supabase
-      .from("businesses")
-      .select(
+    } = await fetchActiveBusiness(
+        supabase,
+        user.id,
         "id, business_name, default_vat_rate"
-      )
-      .eq("owner_user_id", user.id)
-      .single();
+      );
 
     if (businessError) {
       throw businessError;
@@ -431,7 +432,7 @@ export default function ImportInvoicesPage() {
           client_type
         `
       )
-      .eq("business_id", businessData.id)
+      .eq("business_id", businessData.client_book_id)
       .eq("is_active", true)
       .order("name", { ascending: true });
 
@@ -868,7 +869,7 @@ export default function ImportInvoicesPage() {
     }
 
     const payload = {
-      business_id: business.id,
+      business_id: business.client_book_id || business.id,
       name: clean(
         row.new_client_name
       ),
@@ -1250,8 +1251,8 @@ export default function ImportInvoicesPage() {
 
           <p className="mt-2 text-slate-500">
             Upload your Right Inventories
-            spreadsheet and create the RL
-            invoices automatically.
+            spreadsheet and create the invoices
+            for the company selected in the sidebar.
           </p>
         </div>
 

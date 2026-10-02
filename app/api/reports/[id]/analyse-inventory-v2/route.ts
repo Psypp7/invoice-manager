@@ -420,6 +420,14 @@ You are captioning REAL inspection photographs taken by the clerk who
 physically attended the property. Every photograph is already assigned
 to its correct room and subsection.
 
+The source report is an UNFINISHED draft. In it, every caption is a
+placeholder that literally reads "Additional image" because nobody has
+written the wording yet. Those placeholders carry no meaning and are
+not shown to you. You are writing the real captions from scratch.
+
+Your output must read exactly like a finished Right Inventories report
+signed off by Magda Rac-Paczesny.
+
 DO NOT move photographs between rooms.
 DO NOT invent sections.
 DO NOT redesign the report.
@@ -471,6 +479,16 @@ Every later photograph of that same item gets ONE of:
 NEVER repeat the full description on a second photograph of the same
 item. A report that re-describes the same door six times is wrong.
 
+Photographs arrive in document order, in batches. If a metadata entry
+has a non-empty "already_described_in_section", that subsection was
+already opened in an earlier batch and that text is what was written.
+Do NOT describe that item again. Continue with additional_image,
+as_above, internal_view or a specific_defect note.
+
+Only start a new full description in such a section when the
+photograph is plainly a DIFFERENT item (a second door, a separate
+cupboard, another appliance).
+
 In a real 46-page report, well over half of all captions are
 "Additional image", "As above", "Internal view" or a one-line defect
 note. If almost every photograph in your output carries a full
@@ -500,6 +518,32 @@ RULE 3 — HOUSE WORDING
 Lines are short noun phrases, never sentences. No "The image shows",
 no "It appears", no "There is a".
 
+ONE CONDITION LINE MAXIMUM, AND ONLY ON A FULL DESCRIPTION.
+
+Never output a condition line AND a cleanliness line for the same
+photograph. Magda writes ONE line, not two.
+
+  WRONG                        RIGHT
+  Good condition               Good and clean condition
+  Clean condition
+
+  WRONG                        RIGHT
+  Good condition overall       Good condition
+  Clean condition
+
+condition_lines and cleanliness_lines must NEVER both be non-empty on
+the same result. Pick the single line that fits.
+
+Photographs captioned additional_image, as_above, general_view or
+specific_defect get NO condition line at all:
+
+  condition_lines   = []
+  cleanliness_lines = []
+
+Only a full_description (and sometimes an internal_view) carries
+condition. A report with "Good condition" under all 337 photographs is
+wrong and unusable.
+
 CONDITION LINES — use these and little else:
 
   Good condition
@@ -511,7 +555,15 @@ CONDITION LINES — use these and little else:
   Weathered
   Aged and weathered condition
 
-Do not invent scales like "moderate wear" or "good used condition".
+Do not invent scales. These appear NOWHERE in a Right Inventories
+report and must never be used:
+
+  Good condition overall
+  Good used condition
+  Moderate wear
+  Fair condition
+  New
+  Clean condition  (on its own — use "Good and clean condition")
 
 CLEANLINESS, when it needs saying:
 
@@ -866,8 +918,12 @@ function buildSummary(
       cleaningCount++;
     }
 
+    // model_number is the appliance's model. v2.model is the AI model
+    // name and is set on every photograph, so counting it gave 305.
     if (
-      safeText(v2.model)
+      safeText(
+        v2.model_number
+      )
     ) {
       modelCount++;
     }
@@ -1354,6 +1410,50 @@ export async function POST(
       });
     }
 
+    // Sections that already carry a full description from an earlier
+    // batch. A 30-photo batch can cut a section in half, and without
+    // this the next batch would describe the same item all over again.
+    const describedSections:
+      Record<string, string> = {};
+
+    for (
+      const photo of realPhotos
+    ) {
+      if (
+        !isV2Complete(photo)
+      ) {
+        continue;
+      }
+
+      const done =
+        getV2(photo);
+
+      if (
+        done.caption_type !==
+        "full_description"
+      ) {
+        continue;
+      }
+
+      const key =
+        `${safeText(
+          done.room_name
+        )}||${safeText(
+          done.section_name
+        )}`;
+
+      if (
+        !describedSections[key]
+      ) {
+        describedSections[key] =
+          safeText(
+            (done
+              .description_lines ||
+              [])[0]
+          );
+      }
+    }
+
     const pending =
       realPhotos.filter(
         (photo) =>
@@ -1404,30 +1504,61 @@ export async function POST(
         continue;
       }
 
-      const {
-        data:
-          imageBlob,
-        error:
-          downloadError,
-      } =
-        await supabase.storage
-          .from(
-            "inventory-photos"
-          )
-          .download(
-            storagePath
+      // Storage downloads fail intermittently. Retry a few times,
+      // then skip this one photograph rather than throwing away the
+      // whole batch of 30. A skipped photo stays pending and is
+      // picked up on the next run.
+      let imageBlob: any = null;
+      let downloadError: any = null;
+
+      for (
+        let attempt = 1;
+        attempt <= 3;
+        attempt += 1
+      ) {
+        const result =
+          await supabase.storage
+            .from(
+              "inventory-photos"
+            )
+            .download(
+              storagePath
+            );
+
+        if (
+          result.data &&
+          !result.error
+        ) {
+          imageBlob = result.data;
+          downloadError = null;
+          break;
+        }
+
+        downloadError = result.error;
+
+        if (attempt < 3) {
+          await new Promise(
+            (resolve) =>
+              setTimeout(
+                resolve,
+                attempt * 1000
+              )
           );
+        }
+      }
 
       if (
         downloadError ||
         !imageBlob
       ) {
-        throw new Error(
-          `Could not download ${storagePath}: ${
+        console.warn(
+          `Skipping ${storagePath}: ${
             downloadError?.message ||
             "unknown error"
           }`
         );
+
+        continue;
       }
 
       const buffer =
@@ -1521,6 +1652,12 @@ export async function POST(
             oldAnalysis
               .photo_index_on_page
           ),
+
+        // Set when an earlier batch already described this section.
+        already_described_in_section:
+          describedSections[
+            `${roomName}||${sectionName}`
+          ] || "",
       });
 
       imageParts.push(
@@ -1827,6 +1964,29 @@ export async function POST(
         parseObject(
           photo.ai_analysis
         );
+
+      // House style: one condition line, only on a full description.
+      // Never condition AND cleanliness on the same photograph.
+      {
+        const t = safeText(
+          result.caption_type
+        );
+
+        if (
+          t !== "full_description" &&
+          t !== "internal_view"
+        ) {
+          result.condition_lines = [];
+          result.cleanliness_lines = [];
+        } else if (
+          (result.condition_lines || [])
+            .length > 0 &&
+          (result.cleanliness_lines || [])
+            .length > 0
+        ) {
+          result.cleanliness_lines = [];
+        }
+      }
 
       let captionType =
         safeText(

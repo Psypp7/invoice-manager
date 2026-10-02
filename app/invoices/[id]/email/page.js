@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { supabase } from "../../../../lib/supabase";
+import { fetchActiveBusiness } from "../../../../lib/activeBusiness";
 
 const DEFAULT_BODY = `{{greeting}}
 
@@ -206,18 +207,16 @@ export default function InvoiceEmailPage() {
       const {
         data: businessData,
         error: businessError,
-      } = await supabase
-        .from("businesses")
-        .select(
-          `
+      } = await fetchActiveBusiness(
+        supabase,
+        user.id,
+        `
             id,
             business_name,
             invoice_email_sender_name,
             invoice_email_reply_to
           `
-        )
-        .eq("owner_user_id", user.id)
-        .single();
+      );
 
       if (businessError || !businessData) {
         throw (
@@ -286,7 +285,7 @@ export default function InvoiceEmailPage() {
               is_active
             `
           )
-          .eq("business_id", businessData.id)
+          .eq("business_id", businessData.client_book_id)
           .eq("is_active", true)
           .order("company_name", {
             ascending: true,
@@ -471,7 +470,7 @@ export default function InvoiceEmailPage() {
             new Date().toISOString(),
         })
         .eq("id", selectedContactId)
-        .eq("business_id", business.id);
+        .eq("business_id", business.client_book_id);
 
       if (contactError) {
         throw contactError;
@@ -934,7 +933,9 @@ export default function InvoiceEmailPage() {
               </p>
 
               <p className="mt-1 font-semibold">
-                Right Inventories London
+                {business?.invoice_email_sender_name ||
+                  business?.business_name ||
+                  "Right Inventories London"}
               </p>
 
               <p className="mt-1 text-sm text-slate-500">

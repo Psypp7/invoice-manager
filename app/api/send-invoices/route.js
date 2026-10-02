@@ -6,6 +6,11 @@ import { renderToBuffer } from "@react-pdf/renderer";
 import InvoicePdf from "../../../components/InvoicePdf";
 import { createInvoicePdfFilename } from "../../../lib/invoiceFileName";
 import { createClient } from "../../../lib/supabase/server";
+import {
+  fetchActiveBusiness,
+  fetchInvoiceBranding,
+  ACTIVE_BUSINESS_COOKIE,
+} from "../../../lib/activeBusiness";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -92,11 +97,12 @@ export async function POST(request) {
     const {
       data: business,
       error: businessError,
-    } = await supabase
-      .from("businesses")
-      .select("id")
-      .eq("owner_user_id", user.id)
-      .single();
+    } = await fetchActiveBusiness(
+        supabase,
+        user.id,
+        "id",
+        request.cookies.get(ACTIVE_BUSINESS_COOKIE)?.value || null
+      );
 
     if (businessError || !business) {
       throw businessError || new Error("Business not found.");
@@ -148,6 +154,15 @@ export async function POST(request) {
       .map((id) => invoiceMap.get(id))
       .filter(Boolean);
 
+    const branding = await fetchInvoiceBranding(
+      supabase,
+      business.id
+    );
+
+    // London keeps its exact wording; other companies use their own name.
+    const senderCompanyName =
+      branding?.legalName || "Right Inventories London Ltd";
+
     const resend = new Resend(apiKey);
     const failures = [];
     const sentInvoiceIds = [];
@@ -189,6 +204,7 @@ export async function POST(request) {
           InvoicePdf,
           {
             invoice: completeInvoice,
+            branding,
           }
         );
 
@@ -200,7 +216,7 @@ export async function POST(request) {
           from: fromAddress,
           to: [recipient],
           subject:
-            `${invoiceNumber} from Right Inventories London Ltd`,
+            `${invoiceNumber} from ${senderCompanyName}`,
           html: `
             <div style="font-family: Arial, sans-serif; color: #222; line-height: 1.5;">
               <p>
@@ -211,7 +227,7 @@ export async function POST(request) {
 
               <p>
                 Kind regards,<br />
-                Right Inventories London Ltd
+                ${escapeHtml(senderCompanyName)}
               </p>
             </div>
           `,

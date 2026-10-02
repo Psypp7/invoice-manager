@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../../lib/supabase";
+import { fetchActiveBusiness } from "../../lib/activeBusiness";
 
 const DEFAULT_SETTINGS = {
   company: {
@@ -62,6 +63,36 @@ const DEFAULT_SETTINGS = {
   },
 };
 
+// Defaults for any company other than Right Inventories London, so a
+// new company never starts with London's name or bank details.
+const CUSTOM_COMPANY_DEFAULTS = {
+  ...DEFAULT_SETTINGS,
+  company: {
+    ...DEFAULT_SETTINGS.company,
+    legal_name: "",
+    trading_name: "",
+  },
+  invoice: {
+    ...DEFAULT_SETTINGS.invoice,
+    prefix: "RI",
+    next_number: 1001,
+  },
+  payment: {
+    account_name: "",
+    bank_name: "",
+    sort_code: "",
+    account_number: "",
+    payment_reference:
+      "Please use the invoice number as the payment reference.",
+  },
+  email: {
+    ...DEFAULT_SETTINGS.email,
+    sender_name: "",
+    default_subject: "{{invoice_number}}",
+    signature: "",
+  },
+};
+
 const TABS = [
   { id: "company", label: "Company" },
   { id: "invoice", label: "Invoices" },
@@ -70,14 +101,18 @@ const TABS = [
   { id: "preferences", label: "Preferences" },
 ];
 
-function cloneDefaults() {
+function cloneDefaults(profile) {
   return JSON.parse(
-    JSON.stringify(DEFAULT_SETTINGS)
+    JSON.stringify(
+      profile === "custom"
+        ? CUSTOM_COMPANY_DEFAULTS
+        : DEFAULT_SETTINGS
+    )
   );
 }
 
-function mergeSettings(saved) {
-  const defaults = cloneDefaults();
+function mergeSettings(saved, profile) {
+  const defaults = cloneDefaults(profile);
 
   return {
     company: {
@@ -412,11 +447,11 @@ export default function SettingsPage() {
       const {
         data: businessData,
         error: businessError,
-      } = await supabase
-        .from("businesses")
-        .select("id, business_name")
-        .eq("owner_user_id", user.id)
-        .single();
+      } = await fetchActiveBusiness(
+        supabase,
+        user.id,
+        "id, business_name, invoice_profile, invoice_prefix, next_invoice_number"
+      );
 
       if (businessError) {
         throw businessError;
@@ -442,8 +477,23 @@ export default function SettingsPage() {
 
       const nextSettings =
         mergeSettings(
-          settingsData?.settings
+          settingsData?.settings,
+          businessData.invoice_profile
         );
+
+      // For companies with their own numbering, the real prefix and
+      // next number live on the business row, so show those.
+      if (businessData.invoice_profile === "custom") {
+        if (businessData.invoice_prefix) {
+          nextSettings.invoice.prefix =
+            businessData.invoice_prefix;
+        }
+
+        if (businessData.next_invoice_number) {
+          nextSettings.invoice.next_number =
+            businessData.next_invoice_number;
+        }
+      }
 
       if (
         !settingsData?.settings &&
@@ -554,6 +604,31 @@ export default function SettingsPage() {
         throw settingsError;
       }
 
+      // Right Inventories London's business row is left exactly as it
+      // is. Other companies keep their name, prefix and numbering in
+      // step with these settings.
+      if (business.invoice_profile === "custom") {
+        const prefix = String(settings.invoice.prefix || "")
+          .toUpperCase()
+          .replace(/[^A-Z0-9]/g, "");
+
+        const { error: businessUpdateError } =
+          await supabase
+            .from("businesses")
+            .update({
+              business_name:
+                settings.company.trading_name.trim() ||
+                legalName,
+              invoice_prefix: prefix || "RI",
+              next_invoice_number: nextNumber,
+            })
+            .eq("id", business.id);
+
+        if (businessUpdateError) {
+          throw businessUpdateError;
+        }
+      }
+
       setSettings((current) => ({
         ...current,
         invoice: {
@@ -584,7 +659,9 @@ export default function SettingsPage() {
   }
 
   function resetCurrentSection() {
-    const defaults = cloneDefaults();
+    const defaults = cloneDefaults(
+      business?.invoice_profile
+    );
 
     setSettings((current) => ({
       ...current,
@@ -627,7 +704,7 @@ export default function SettingsPage() {
       <header className="flex flex-col justify-between gap-4 xl:flex-row xl:items-end">
         <div>
           <p className="text-sm font-semibold uppercase tracking-wide text-blue-600">
-            Right Inventories
+            {business?.business_name || "Right Inventories"}
           </p>
 
           <h1 className="mt-1 text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">

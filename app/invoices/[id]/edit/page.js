@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../../../../lib/supabase";
+import { fetchActiveBusiness } from "../../../../lib/activeBusiness";
 
 function emptyItem() {
   return {
@@ -67,18 +68,16 @@ export default function EditInvoicePage() {
         throw new Error("You must sign in before editing an invoice.");
       }
 
-      const { data: businessData, error: businessError } = await supabase
-        .from("businesses")
-        .select(
-          `
+      const { data: businessData, error: businessError } = await fetchActiveBusiness(
+        supabase,
+        user.id,
+        `
             id,
             business_name,
             default_payment_days,
             default_vat_rate
           `
-        )
-        .eq("owner_user_id", user.id)
-        .single();
+      );
 
       if (businessError) {
         throw businessError;
@@ -104,7 +103,7 @@ export default function EditInvoicePage() {
                 is_active
               `
             )
-            .eq("business_id", businessData.id)
+            .eq("business_id", businessData.client_book_id)
             .order("name", { ascending: true }),
 
           supabase
@@ -120,7 +119,7 @@ export default function EditInvoicePage() {
                 is_active
               `
             )
-            .eq("business_id", businessData.id)
+            .eq("business_id", businessData.client_book_id)
             .order("address_line_1", { ascending: true }),
 
           supabase

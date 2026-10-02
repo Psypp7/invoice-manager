@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../../lib/supabase";
+import { fetchActiveBusiness } from "../../lib/activeBusiness";
 
 function getToday() {
   return new Date().toISOString().slice(0, 10);
@@ -271,19 +272,18 @@ export default function InvoicesPage() {
       }
 
       const { data: businessData, error: businessError } =
-        await supabase
-          .from("businesses")
-          .select(
-            `
+        await fetchActiveBusiness(
+        supabase,
+        user.id,
+        `
               id,
               business_name,
               default_payment_days,
               default_vat_rate,
-              invoice_prefix
+              invoice_prefix,
+              invoice_profile
             `
-          )
-          .eq("owner_user_id", user.id)
-          .single();
+      );
 
       if (businessError) {
         throw businessError;
@@ -301,8 +301,8 @@ export default function InvoicesPage() {
       ]);
 
       await Promise.all([
-        loadClients(businessData.id),
-        loadProperties(businessData.id),
+        loadClients(businessData.client_book_id),
+        loadProperties(businessData.client_book_id),
         loadInvoices(businessData.id),
       ]);
     } catch (error) {
@@ -739,6 +739,30 @@ export default function InvoicesPage() {
             ? new Date().toISOString()
             : null,
       };
+
+      // Right Inventories London keeps its existing RL numbering in
+      // Supabase. Any other company reserves its own number first.
+      if (business.invoice_profile === "custom") {
+        const {
+          data: nextNumber,
+          error: numberError,
+        } = await supabase.rpc(
+          "get_next_business_invoice_number",
+          { p_business_id: business.id }
+        );
+
+        if (numberError || !nextNumber) {
+          throw (
+            numberError ||
+            new Error(
+              "The next invoice number could not be generated."
+            )
+          );
+        }
+
+        invoicePayload.invoice_number =
+          String(nextNumber).toUpperCase();
+      }
 
       const {
         data: createdInvoice,
@@ -1369,6 +1393,12 @@ export default function InvoicesPage() {
       <>
       <header className="flex min-w-0 flex-col justify-between gap-4 xl:flex-row xl:items-center">
         <div>
+          {business?.business_name ? (
+            <p className="mb-1 text-sm font-semibold uppercase tracking-wide text-blue-600">
+              {business.business_name}
+            </p>
+          ) : null}
+
           <h1 className="text-3xl font-bold">
             Invoices
           </h1>

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../../lib/supabase";
+import { fetchActiveBusiness } from "../../lib/activeBusiness";
 
 const emptyForm = {
   property_name: "",
@@ -48,21 +49,21 @@ export default function PropertiesPage() {
         throw new Error("You must sign in before viewing properties.");
       }
 
-      const { data: business, error: businessError } = await supabase
-        .from("businesses")
-        .select("id")
-        .eq("owner_user_id", user.id)
-        .single();
+      const { data: business, error: businessError } = await fetchActiveBusiness(
+        supabase,
+        user.id,
+        "id"
+      );
 
       if (businessError) {
         throw businessError;
       }
 
-      setBusinessId(business.id);
+      setBusinessId(business.client_book_id);
 
       await Promise.all([
-        loadClients(business.id),
-        loadProperties(business.id),
+        loadClients(business.client_book_id),
+        loadProperties(business.client_book_id),
       ]);
     } catch (error) {
       console.error(error);
