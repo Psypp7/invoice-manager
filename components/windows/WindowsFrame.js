@@ -6,6 +6,7 @@ import { supabase } from "../../lib/supabase";
 
 const NAV = [
   { href: "/windows", label: "Jobs" },
+  { href: "/windows/earnings", label: "Earnings" },
   { href: "/windows/prices", label: "Prices" },
 ];
 
