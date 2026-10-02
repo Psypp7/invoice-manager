@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabase";
+import { WINDOWS_HOME, isWindowsUser } from "../../lib/windows";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -28,7 +29,9 @@ useEffect(() => {
       }
 
       if (session) {
-        router.replace("/");
+        router.replace(
+          isWindowsUser(session.user) ? WINDOWS_HOME : "/"
+        );
         router.refresh();
         return;
       }
@@ -55,7 +58,7 @@ useEffect(() => {
     setMessage("");
 
     try {
-      const { error } =
+      const { data, error } =
         await supabase.auth.signInWithPassword({
           email: email.trim(),
           password,
@@ -65,7 +68,9 @@ useEffect(() => {
         throw error;
       }
 
-      router.replace("/");
+      router.replace(
+        isWindowsUser(data?.user) ? WINDOWS_HOME : "/"
+      );
       router.refresh();
     } catch (error) {
       console.error("Login error:", error);

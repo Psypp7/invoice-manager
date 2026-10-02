@@ -9,6 +9,7 @@ import {
   readActiveBusinessId,
   setActiveBusinessId,
 } from "../lib/activeBusiness";
+import { isWindowsPath } from "../lib/windows";
 
 const menuItems = [
   { name: "Dashboard", href: "/" },
@@ -206,6 +207,11 @@ export default function AppShell({ children }) {
 
     router.replace("/login");
     router.refresh();
+  }
+
+  // M & P Windows has its own full-screen layout with no sidebar.
+  if (isWindowsPath(pathname)) {
+    return children;
   }
 
   if (isPublicRoute) {
