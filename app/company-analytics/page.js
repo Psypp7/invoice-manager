@@ -1,7 +1,9 @@
 "use client";
 
+import Link from "next/link";
 import {
   Fragment,
+  useCallback,
   useEffect,
   useMemo,
   useState,
@@ -157,10 +159,11 @@ function emptyBucket() {
     mineOutstanding: 0,
     theirsReceived: 0,
     unpaidJobs: 0,
+    unpaidInvoices: [],
   };
 }
 
-function addToBucket(bucket, split) {
+function addToBucket(bucket, split, invoice) {
   bucket.jobs += 1;
   bucket.invoiced += split.total;
   bucket.mine += split.mine;
@@ -173,6 +176,13 @@ function addToBucket(bucket, split) {
 
   if (!split.isSettled) {
     bucket.unpaidJobs += 1;
+
+    if (invoice) {
+      bucket.unpaidInvoices.push({
+        ...invoice,
+        stillOwed: round2(split.outstanding),
+      });
+    }
   }
 
   return bucket;
@@ -201,6 +211,7 @@ function Figure({
   value,
   note,
   tone = "slate",
+  action = null,
 }) {
   const tones = {
     slate: "text-slate-900",
@@ -228,6 +239,260 @@ function Figure({
           {note}
         </p>
       )}
+
+      {action}
+    </div>
+  );
+}
+
+function UnpaidButton({ count, onClick, compact = false }) {
+  return (
+    <button
+      type="button"
+      onClick={(event) => {
+        event.stopPropagation();
+        onClick();
+      }}
+      className={`inline-flex items-center gap-1 rounded-full border border-rose-200 bg-rose-50 font-semibold text-rose-700 hover:border-rose-400 hover:bg-rose-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-rose-500 ${
+        compact
+          ? "ml-1 px-2 py-0.5 text-xs"
+          : "mt-1 px-2.5 py-1 text-xs"
+      }`}
+    >
+      {count} unpaid
+      <span aria-hidden="true">&rsaquo;</span>
+    </button>
+  );
+}
+
+// ============================================================
+// UNPAID INVOICES LIST
+// ============================================================
+
+function daysSince(isoDate) {
+  const parts = String(isoDate || "").slice(0, 10).split("-").map(Number);
+  if (parts.length !== 3 || !parts[0]) return 0;
+
+  const issued = new Date(parts[0], parts[1] - 1, parts[2]);
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+  return Math.max(0, Math.round((today - issued) / 86400000));
+}
+
+function unpaidAge(days) {
+  if (days === 0) return "Issued today";
+  if (days === 1) return "Unpaid for 1 day";
+  return `Unpaid for ${days} days`;
+}
+
+function ageTone(days) {
+  if (days >= 60) return "bg-rose-700 text-white";
+  if (days >= 30) return "bg-rose-100 text-rose-800";
+  if (days >= 14) return "bg-amber-100 text-amber-800";
+  return "bg-slate-100 text-slate-700";
+}
+
+function formatIssueDate(value) {
+  const parts = String(value || "").slice(0, 10).split("-").map(Number);
+  if (parts.length !== 3 || !parts[0]) return "";
+
+  return new Date(parts[0], parts[1] - 1, parts[2]).toLocaleDateString("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+function invoiceAddress(invoice) {
+  const property = invoice.property;
+
+  if (property) {
+    const text = [
+      property.address_line_1,
+      property.address_line_2,
+      property.city,
+      property.postcode,
+    ]
+      .map((part) => String(part || "").trim())
+      .filter(Boolean)
+      .join(", ");
+
+    if (text) return text;
+  }
+
+  const first = [...(invoice.invoice_items || [])].sort(
+    (a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0)
+  )[0];
+
+  return first?.description || "";
+}
+
+function UnpaidInvoicesPanel({ view, onClose }) {
+  useEffect(() => {
+    function onKey(event) {
+      if (event.key === "Escape") onClose();
+    }
+
+    window.addEventListener("keydown", onKey);
+    document.body.style.overflow = "hidden";
+
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = "";
+    };
+  }, [onClose]);
+
+  // Oldest first: those are the ones to chase.
+  const list = [...view.invoices].sort(
+    (a, b) =>
+      String(a.issue_date).localeCompare(String(b.issue_date)) ||
+      String(a.invoice_number).localeCompare(String(b.invoice_number))
+  );
+
+  const owed = round2(list.reduce((sum, invoice) => sum + invoice.stillOwed, 0));
+  const notSent = list.filter((invoice) => !invoice.sent_at).length;
+  const showClient = new Set(list.map((invoice) => clientName(invoice.client))).size > 1;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex justify-end bg-slate-900/40"
+      onClick={onClose}
+    >
+      <aside
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="unpaid-title"
+        onClick={(event) => event.stopPropagation()}
+        className="flex h-full w-full max-w-2xl flex-col bg-white shadow-2xl"
+      >
+        <header className="border-b border-slate-200 p-6">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h2 id="unpaid-title" className="text-2xl font-bold text-slate-900">
+                {view.title}
+              </h2>
+              <p className="mt-1 text-slate-500">{view.subtitle}</p>
+            </div>
+
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+            >
+              Close
+            </button>
+          </div>
+
+          <div className="mt-5 grid grid-cols-2 gap-3">
+            <div className="rounded-xl bg-rose-50 p-4">
+              <p className="text-sm font-semibold text-rose-700">Still owed</p>
+              <p className="mt-1 text-3xl font-bold tabular-nums text-rose-700">
+                {money(owed)}
+              </p>
+            </div>
+            <div className="rounded-xl bg-slate-50 p-4">
+              <p className="text-sm font-semibold text-slate-600">Unpaid invoices</p>
+              <p className="mt-1 text-3xl font-bold tabular-nums text-slate-900">
+                {list.length}
+              </p>
+              {notSent > 0 ? (
+                <p className="mt-0.5 text-sm font-semibold text-amber-700">
+                  {notSent} never emailed
+                </p>
+              ) : null}
+            </div>
+          </div>
+        </header>
+
+        <div className="flex-1 overflow-y-auto">
+          {list.length === 0 ? (
+            <p className="p-10 text-center text-slate-500">
+              Nothing unpaid here.
+            </p>
+          ) : (
+            <ul className="divide-y divide-slate-200">
+              {list.map((invoice) => {
+                const days = daysSince(invoice.issue_date);
+                const address = invoiceAddress(invoice);
+                const partPaid = invoice.stillOwed < Number(invoice.total || 0);
+
+                return (
+                  <li key={invoice.id} className="p-5">
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-lg font-bold text-slate-900">
+                            {invoice.invoice_number}
+                          </span>
+                          <span
+                            className={`rounded-full px-2.5 py-0.5 text-xs font-bold ${ageTone(days)}`}
+                          >
+                            {unpaidAge(days)}
+                          </span>
+                          {!invoice.sent_at ? (
+                            <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-bold text-amber-800">
+                              Not emailed
+                            </span>
+                          ) : null}
+                        </div>
+
+                        {showClient ? (
+                          <p className="mt-1 font-semibold text-slate-700">
+                            {clientName(invoice.client)}
+                          </p>
+                        ) : null}
+
+                        {address ? (
+                          <p className="mt-1 text-sm text-slate-600">{address}</p>
+                        ) : null}
+
+                        <p className="mt-1 text-sm text-slate-500">
+                          Issued {formatIssueDate(invoice.issue_date)}
+                        </p>
+                      </div>
+
+                      <div className="shrink-0 text-right tabular-nums">
+                        <p className="text-lg font-bold text-rose-700">
+                          {money(invoice.stillOwed)}
+                        </p>
+                        {partPaid ? (
+                          <p className="text-xs text-slate-500">
+                            of {money(invoice.total)}
+                          </p>
+                        ) : null}
+                      </div>
+                    </div>
+
+                    <div className="mt-3 flex gap-2">
+                      <Link
+                        href={`/invoices/${invoice.id}`}
+                        className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-semibold text-blue-700 hover:bg-blue-50"
+                      >
+                        View PDF
+                      </Link>
+                      <Link
+                        href={`/invoices/${invoice.id}/email`}
+                        className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-semibold text-violet-700 hover:bg-violet-50"
+                      >
+                        {invoice.sent_at ? "Email again" : "Email invoice"}
+                      </Link>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+
+        <footer className="border-t border-slate-200 p-4 text-sm text-slate-500">
+          To mark one as paid, use Mark paid on the{" "}
+          <Link href="/invoices" className="font-semibold text-blue-700 hover:underline">
+            Invoices page
+          </Link>
+          .
+        </footer>
+      </aside>
     </div>
   );
 }
@@ -384,6 +649,15 @@ export default function CompanyAnalyticsPage() {
   const [expandedCompany, setExpandedCompany] =
     useState("");
 
+  // { title, subtitle, invoices } while the unpaid list is open
+  const [unpaidView, setUnpaidView] = useState(null);
+
+  function openUnpaid(title, subtitle, list) {
+    setUnpaidView({ title, subtitle, invoices: list });
+  }
+
+  const closeUnpaid = useCallback(() => setUnpaidView(null), []);
+
   useEffect(() => {
     loadAnalytics();
   }, []);
@@ -434,6 +708,17 @@ export default function CompanyAnalyticsPage() {
             amount_paid,
             balance_due,
             status,
+            sent_at,
+            property:properties(
+              address_line_1,
+              address_line_2,
+              city,
+              postcode
+            ),
+            invoice_items(
+              description,
+              sort_order
+            ),
             client:clients(
               id,
               name,
@@ -526,7 +811,7 @@ export default function CompanyAnalyticsPage() {
 
       if (!bucket) continue;
 
-      addToBucket(bucket, splitInvoice(invoice));
+      addToBucket(bucket, splitInvoice(invoice), invoice);
     }
 
     return months.map(roundBucket);
@@ -566,7 +851,7 @@ export default function CompanyAnalyticsPage() {
     const bucket = emptyBucket();
 
     for (const invoice of filteredInvoices) {
-      addToBucket(bucket, splitInvoice(invoice));
+      addToBucket(bucket, splitInvoice(invoice), invoice);
     }
 
     return roundBucket(bucket);
@@ -592,7 +877,7 @@ export default function CompanyAnalyticsPage() {
       const company = companies.get(key);
       const split = splitInvoice(invoice);
 
-      addToBucket(company, split);
+      addToBucket(company, split, invoice);
 
       // Keep the same invoice in a per-month bucket so the
       // row can be opened to show which months are unpaid.
@@ -608,7 +893,8 @@ export default function CompanyAnalyticsPage() {
 
         addToBucket(
           company.monthMap.get(date.monthIndex),
-          split
+          split,
+          invoice
         );
       }
     }
@@ -870,6 +1156,23 @@ export default function CompanyAnalyticsPage() {
           label="Completed jobs"
           value={totals.jobs}
           note={`${totals.unpaidJobs} still unpaid`}
+          action={
+            totals.unpaidJobs > 0 ? (
+              <button
+                type="button"
+                onClick={() =>
+                  openUnpaid(
+                    "Unpaid invoices",
+                    `Every company, ${periodLabel}`,
+                    totals.unpaidInvoices
+                  )
+                }
+                className="mt-3 w-full rounded-lg bg-rose-600 px-3 py-2 text-sm font-semibold text-white hover:bg-rose-700"
+              >
+                See unpaid invoices
+              </button>
+            ) : null
+          }
         />
       </section>
 
@@ -1240,9 +1543,17 @@ export default function CompanyAnalyticsPage() {
                       {company.jobs}
 
                       {company.unpaidJobs > 0 && (
-                        <div className="mt-0.5 text-xs text-rose-600">
-                          {company.unpaidJobs}{" "}
-                          unpaid
+                        <div>
+                          <UnpaidButton
+                            count={company.unpaidJobs}
+                            onClick={() =>
+                              openUnpaid(
+                                company.name,
+                                `Unpaid invoices, ${periodLabel}`,
+                                company.unpaidInvoices
+                              )
+                            }
+                          />
                         </div>
                       )}
                     </td>
@@ -1297,10 +1608,17 @@ export default function CompanyAnalyticsPage() {
                           {month.jobs}
 
                           {month.unpaidJobs > 0 && (
-                            <span className="ml-1 text-xs text-rose-600">
-                              ({month.unpaidJobs}{" "}
-                              unpaid)
-                            </span>
+                            <UnpaidButton
+                              compact
+                              count={month.unpaidJobs}
+                              onClick={() =>
+                                openUnpaid(
+                                  company.name,
+                                  `Unpaid invoices, ${MONTH_NAMES[month.monthIndex]} ${selectedYear}`,
+                                  month.unpaidInvoices
+                                )
+                              }
+                            />
                           )}
                         </td>
 
@@ -1410,6 +1728,13 @@ export default function CompanyAnalyticsPage() {
           </div>
         )}
       </section>
+
+      {unpaidView ? (
+        <UnpaidInvoicesPanel
+          view={unpaidView}
+          onClose={closeUnpaid}
+        />
+      ) : null}
     </div>
   );
 }
