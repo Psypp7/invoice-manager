@@ -6,9 +6,9 @@ import { supabase } from "../../lib/supabase";
 
 const NAV = [
   { href: "/windows", label: "Jobs" },
-  { href: "/windows/payments", label: "Payments" },
+  { href: "/windows/payments", label: "Money in" },
   { href: "/windows/balance", label: "Balance" },
-  { href: "/windows/earnings", label: "Earnings" },
+  { href: "/windows/earnings", label: "Totals" },
   { href: "/windows/prices", label: "Prices" },
 ];
 

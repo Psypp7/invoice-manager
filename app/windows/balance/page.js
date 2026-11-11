@@ -153,7 +153,7 @@ export default function WindowsBalancePage() {
               has been taken off your oldest jobs first. To put a payment against a
               particular job, pick the job when you log it on{" "}
               <Link href="/windows/payments" className="font-semibold text-[#0F766E] underline">
-                Payments
+                Money in
               </Link>
               .
             </p>
