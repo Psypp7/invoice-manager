@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import WindowsFrame from "../../../components/windows/WindowsFrame";
 import { supabase } from "../../../lib/supabase";
 import {
+  buildBalance,
   formatJobDate,
   formatMoney,
   roundMoney,
@@ -64,13 +65,14 @@ const PRESETS = [
   { id: "this-year", label: "This year" },
 ];
 
-function emptyForm() {
-  return { id: null, method: "cash", amount: "", paid_on: todayIso(), note: "" };
+function emptyForm(jobId = "") {
+  return { id: null, method: "cash", amount: "", paid_on: todayIso(), note: "", job_id: jobId };
 }
 
 export default function WindowsPaymentsPage() {
   const [userId, setUserId] = useState(null);
   const [payments, setPayments] = useState([]);
+  const [jobs, setJobs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -84,14 +86,26 @@ export default function WindowsPaymentsPage() {
   const [to, setTo] = useState(initial[1]);
 
   async function loadPayments() {
-    const { data, error: loadError } = await supabase
-      .from("mp_payments")
-      .select("id, method, amount, paid_on, note")
-      .order("paid_on", { ascending: false })
-      .order("created_at", { ascending: false });
+    const [paymentsResult, jobsResult] = await Promise.all([
+      supabase
+        .from("mp_payments")
+        .select("id, method, amount, paid_on, note, job_id")
+        .order("paid_on", { ascending: false })
+        .order("created_at", { ascending: false }),
+      supabase
+        .from("mp_jobs")
+        .select("id, job_number, job_date, address, total, created_at"),
+    ]);
 
-    if (loadError) throw loadError;
-    setPayments(data || []);
+    if (paymentsResult.error) {
+      throw paymentsResult.error.message?.includes("job_id")
+        ? new Error("Run the new Supabase update (mp-balance.sql) first.")
+        : paymentsResult.error;
+    }
+    if (jobsResult.error) throw jobsResult.error;
+
+    setPayments(paymentsResult.data || []);
+    setJobs(jobsResult.data || []);
   }
 
   useEffect(() => {
@@ -103,6 +117,12 @@ export default function WindowsPaymentsPage() {
         if (!user) return;
         setUserId(user.id);
         await loadPayments();
+
+        // Opened from "Log payment" on the Balance screen.
+        const jobFromLink = new URLSearchParams(window.location.search).get("job");
+        if (jobFromLink) {
+          setForm(emptyForm(jobFromLink));
+        }
       } catch (e) {
         setError(e.message || "Your payments could not be loaded.");
       } finally {
@@ -117,6 +137,23 @@ export default function WindowsPaymentsPage() {
     setFrom(range[0]);
     setTo(range[1]);
   }
+
+  const balance = useMemo(() => buildBalance(jobs, payments), [jobs, payments]);
+  const jobById = useMemo(
+    () => new Map(balance.jobs.map((job) => [job.id, job])),
+    [balance]
+  );
+
+  // Unpaid jobs first (oldest first), then paid ones (newest first).
+  const jobOptions = useMemo(
+    () => [
+      ...balance.jobs.filter((job) => job.left > 0),
+      ...balance.jobs.filter((job) => job.left <= 0).reverse(),
+    ],
+    [balance]
+  );
+
+  const pickedJob = form.job_id ? jobById.get(form.job_id) : null;
 
   const start = from && to && from > to ? to : from;
   const end = from && to && from > to ? from : to;
@@ -149,6 +186,7 @@ export default function WindowsPaymentsPage() {
       amount: String(payment.amount),
       paid_on: payment.paid_on,
       note: payment.note || "",
+      job_id: payment.job_id || "",
     });
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
@@ -173,6 +211,7 @@ export default function WindowsPaymentsPage() {
       amount,
       paid_on: form.paid_on,
       note: form.note.trim() || null,
+      job_id: form.job_id || null,
     };
 
     setSaving(true);
@@ -283,6 +322,44 @@ export default function WindowsPaymentsPage() {
             />
           </label>
         </div>
+
+        <label className="mt-3 block">
+          <span className="mb-1 block text-sm font-semibold">
+            Which job? <span className="font-normal text-slate-500">(optional)</span>
+          </span>
+          <select
+            value={form.job_id}
+            onChange={(e) => setForm((f) => ({ ...f, job_id: e.target.value }))}
+            className={field}
+          >
+            <option value="">Not for one job (taken off the oldest first)</option>
+            {jobOptions.map((job) => (
+              <option key={job.id} value={job.id}>
+                {`Job ${job.job_number}${job.address ? `, ${job.address}` : ""} · ${
+                  job.left > 0 ? `${formatMoney(job.left)} left` : "paid"
+                }`}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        {pickedJob && pickedJob.left > 0 ? (
+          <div className="mt-2 flex items-center justify-between gap-3 rounded-lg bg-[#F1FAF8] px-3 py-2 text-sm">
+            <span>
+              Job {pickedJob.job_number} still owes{" "}
+              <strong className="tabular-nums">{formatMoney(pickedJob.left)}</strong>
+            </span>
+            <button
+              type="button"
+              onClick={() =>
+                setForm((f) => ({ ...f, amount: String(pickedJob.left) }))
+              }
+              className="shrink-0 rounded-md border border-[#0F766E] px-2 py-1 font-semibold text-[#0F766E] hover:bg-white"
+            >
+              Use this amount
+            </button>
+          </div>
+        ) : null}
 
         <label className="mt-3 block">
           <span className="mb-1 block text-sm font-semibold">
@@ -430,6 +507,14 @@ export default function WindowsPaymentsPage() {
                           {formatJobDate(payment.paid_on)}
                         </span>
                       </span>
+                      {payment.job_id && jobById.get(payment.job_id) ? (
+                        <span className="mt-1 block truncate text-sm font-semibold text-[#13232E]">
+                          Job {jobById.get(payment.job_id).job_number}
+                          {jobById.get(payment.job_id).address
+                            ? `, ${jobById.get(payment.job_id).address}`
+                            : ""}
+                        </span>
+                      ) : null}
                       {payment.note ? (
                         <span className="mt-1 block truncate text-sm text-slate-700">
                           {payment.note}

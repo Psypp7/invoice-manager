@@ -7,6 +7,7 @@ import { supabase } from "../../lib/supabase";
 const NAV = [
   { href: "/windows", label: "Jobs" },
   { href: "/windows/payments", label: "Payments" },
+  { href: "/windows/balance", label: "Balance" },
   { href: "/windows/earnings", label: "Earnings" },
   { href: "/windows/prices", label: "Prices" },
 ];
@@ -55,7 +56,7 @@ export default function WindowsFrame({ children, wide = false }) {
         </div>
 
         <nav
-          className={`mx-auto flex gap-1 px-2 ${
+          className={`mx-auto flex gap-1 overflow-x-auto px-2 ${
             wide ? "max-w-5xl" : "max-w-2xl"
           }`}
         >
@@ -70,7 +71,7 @@ export default function WindowsFrame({ children, wide = false }) {
               <Link
                 key={item.href}
                 href={item.href}
-                className={`border-b-[3px] px-3 pb-2 pt-1 text-sm font-semibold ${
+                className={`shrink-0 border-b-[3px] px-2.5 pb-2 pt-1 text-sm font-semibold ${
                   active
                     ? "border-[#7FD1C7] text-white"
                     : "border-transparent text-slate-400 hover:text-white"
