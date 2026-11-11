@@ -11,6 +11,7 @@ import PeriodPicker, {
   toIso,
 } from "../../../components/windows/PeriodPicker";
 import { supabase } from "../../../lib/supabase";
+import { locale, translate, useLang } from "../../../lib/windowsLang";
 import {
   formatJobDate,
   formatMoney,
@@ -18,8 +19,19 @@ import {
   todayIso,
 } from "../../../lib/windows";
 
-const DAY_LETTERS = ["M", "T", "W", "T", "F", "S", "S"];
-const MONTH_LETTERS = ["J", "F", "M", "A", "M", "J", "J", "A", "S", "O", "N", "D"];
+// Monday first. Polish: pon, wt, śr, czw, pt, sob, nd.
+const DAY_LETTERS = {
+  en: ["M", "T", "W", "T", "F", "S", "S"],
+  pl: ["P", "W", "Ś", "C", "P", "S", "N"],
+};
+const MONTH_LETTERS = {
+  en: ["J", "F", "M", "A", "M", "J", "J", "A", "S", "O", "N", "D"],
+  pl: ["S", "L", "M", "K", "M", "C", "L", "S", "W", "P", "L", "G"],
+};
+
+function letters(table) {
+  return table[locale() === "pl-PL" ? "pl" : "en"];
+}
 
 function sumJobs(jobs, start, end) {
   return roundMoney(
@@ -46,7 +58,7 @@ function buildBuckets(mode, period, jobs) {
       const date = fromIso(iso);
       return {
         key: iso,
-        short: mode === "week" ? DAY_LETTERS[i] : String(date.getDate()),
+        short: mode === "week" ? letters(DAY_LETTERS)[i] : String(date.getDate()),
         long: formatJobDate(iso),
         start: iso,
         end: iso,
@@ -66,8 +78,8 @@ function buildBuckets(mode, period, jobs) {
       const b = last > end ? end : last;
       out.push({
         key: first,
-        short: MONTH_LETTERS[cursor.getMonth()],
-        long: cursor.toLocaleDateString("en-GB", { month: "long", year: "numeric" }),
+        short: letters(MONTH_LETTERS)[cursor.getMonth()],
+        long: cursor.toLocaleDateString(locale(), { month: "long", year: "numeric" }),
         start: a,
         end: b,
         value: sumJobs(jobs, a, b),
@@ -89,7 +101,7 @@ function buildBuckets(mode, period, jobs) {
     out.push({
       key: monday,
       short: a === b ? String(fa.getDate()) : `${fa.getDate()}–${fb.getDate()}`,
-      long: `${fa.toLocaleDateString("en-GB", { day: "numeric", month: "short" })} – ${fb.toLocaleDateString("en-GB", { day: "numeric", month: "short" })}`,
+      long: `${fa.toLocaleDateString(locale(), { day: "numeric", month: "short" })} – ${fb.toLocaleDateString(locale(), { day: "numeric", month: "short" })}`,
       start: a,
       end: b,
       value: sumJobs(jobs, a, b),
@@ -165,6 +177,7 @@ function BarChart({ buckets, title }) {
 }
 
 export default function WindowsTotalsPage() {
+  const { t, lang } = useLang();
   const [jobs, setJobs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -182,7 +195,7 @@ export default function WindowsTotalsPage() {
         if (loadError) throw loadError;
         setJobs(data || []);
       } catch (e) {
-        setError(e.message || "Your jobs could not be loaded.");
+        setError(e.message || translate("jobs.loadError"));
       } finally {
         setLoading(false);
       }
@@ -225,7 +238,7 @@ export default function WindowsTotalsPage() {
       previous,
       buckets: buildBuckets(picker.mode, period, jobs),
     };
-  }, [jobs, period.start, period.end, picker.mode, picker.offset]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [jobs, period.start, period.end, picker.mode, picker.offset, lang]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // The last 8 weeks, for the week view.
   const recentWeeks = useMemo(() => {
@@ -241,23 +254,23 @@ export default function WindowsTotalsPage() {
         count: inWeek.length,
       };
     });
-  }, [jobs, picker.mode]);
+  }, [jobs, picker.mode, lang]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const weekMax = Math.max(...recentWeeks.map((w) => w.total), 0);
   const change = result.previous ? roundMoney(result.total - result.previous.total) : 0;
 
   return (
     <WindowsFrame>
-      <h1 className="text-2xl font-bold tracking-tight">Totals</h1>
+      <h1 className="text-2xl font-bold tracking-tight">{t("nav.totals")}</h1>
       <p className="mt-1 text-sm text-slate-600">
-        What you made, by the date of each job. Weeks run Monday to Sunday.
+        {t("totals.intro")}
       </p>
 
       <div className="mt-5">
         <PeriodPicker value={picker} onChange={setPicker} />
       </div>
 
-      {loading ? <p className="mt-8 text-slate-500">Loading…</p> : null}
+      {loading ? <p className="mt-8 text-slate-500">{t("loading")}</p> : null}
 
       {error ? (
         <p role="alert" className="mt-5 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-800">
@@ -269,7 +282,7 @@ export default function WindowsTotalsPage() {
         <>
           {/* Headline and chart */}
           <section className="mt-4 rounded-2xl bg-[#13232E] p-5 text-white">
-            <p className="text-sm text-slate-300">You made</p>
+            <p className="text-sm text-slate-300">{t("totals.youMade")}</p>
             <p className="mt-0.5 text-4xl font-extrabold tabular-nums tracking-tight">
               {formatMoney(result.total)}
             </p>
@@ -277,13 +290,13 @@ export default function WindowsTotalsPage() {
             {result.previous ? (
               <p className="mt-1 text-sm text-slate-300">
                 {change === 0 ? (
-                  <>Same as {result.previous.label.toLowerCase()}</>
+                  <>{t("totals.same", { prev: result.previous.label.toLowerCase() })}</>
                 ) : (
                   <>
                     <span className={change > 0 ? "font-semibold text-[#7FD1C7]" : "font-semibold text-[#FDA4AF]"}>
                       {change > 0 ? "▲" : "▼"} {formatMoney(Math.abs(change))}
                     </span>{" "}
-                    on {result.previous.label.toLowerCase()} ({formatMoney(result.previous.total)})
+                    {t("totals.vs", { prev: result.previous.label.toLowerCase(), amount: formatMoney(result.previous.total) })}
                   </>
                 )}
               </p>
@@ -291,11 +304,11 @@ export default function WindowsTotalsPage() {
 
             <div className="mt-4 grid grid-cols-2 gap-3 border-t border-white/15 pt-4">
               <div>
-                <p className="text-sm text-slate-300">Jobs</p>
+                <p className="text-sm text-slate-300">{t("nav.jobs")}</p>
                 <p className="text-xl font-bold tabular-nums">{result.jobs.length}</p>
               </div>
               <div>
-                <p className="text-sm text-slate-300">Average per job</p>
+                <p className="text-sm text-slate-300">{t("totals.average")}</p>
                 <p className="text-xl font-bold tabular-nums">{formatMoney(result.average)}</p>
               </div>
             </div>
@@ -304,18 +317,18 @@ export default function WindowsTotalsPage() {
               <BarChart
                 key={`${period.start}-${period.end}`}
                 buckets={result.buckets}
-                title={`Made each ${picker.mode === "week" ? "day" : picker.mode === "month" ? "week" : "period"}, ${period.sub}`}
+                title={`${t("totals.chart")}, ${period.sub}`}
               />
             ) : null}
           </section>
 
           {/* What was fitted */}
           <section className="mt-6">
-            <h2 className="text-lg font-bold">What you did</h2>
+            <h2 className="text-lg font-bold">{t("whatYouDid")}</h2>
 
             {result.items.length === 0 ? (
               <p className="mt-2 rounded-xl border-2 border-dashed border-[#9FB8B8] p-5 text-center text-slate-600">
-                No jobs {picker.mode === "week" && picker.offset === 0 ? "yet this week" : "in this period"}.
+                {picker.mode === "week" && picker.offset === 0 ? t("totals.noneThisWeek") : t("totals.nonePeriod")}
               </p>
             ) : (
               <ul className="mt-2 divide-y divide-[#D5E0E0] overflow-hidden rounded-xl border border-[#D5E0E0] bg-white">
@@ -335,7 +348,7 @@ export default function WindowsTotalsPage() {
           {/* Jobs in the period */}
           {result.jobs.length ? (
             <section className="mt-6">
-              <h2 className="text-lg font-bold">Jobs</h2>
+              <h2 className="text-lg font-bold">{t("nav.jobs")}</h2>
               <ul className="mt-2 divide-y divide-[#D5E0E0] overflow-hidden rounded-xl border border-[#D5E0E0] bg-white">
                 {result.jobs.map((job) => (
                   <li key={job.id}>
@@ -344,7 +357,7 @@ export default function WindowsTotalsPage() {
                       className="flex items-center justify-between gap-3 px-4 py-3 hover:bg-[#F1FAF8]"
                     >
                       <span className="min-w-0">
-                        <span className="block font-semibold">Job {job.job_number}</span>
+                        <span className="block font-semibold">{t("job.title", { n: job.job_number })}</span>
                         <span className="block truncate text-sm text-slate-500">
                           {formatJobDate(job.job_date)}
                           {job.address ? `, ${job.address}` : ""}
@@ -361,7 +374,7 @@ export default function WindowsTotalsPage() {
           {/* Past weeks */}
           {recentWeeks.length ? (
             <section className="mt-6">
-              <h2 className="text-lg font-bold">Past 8 weeks</h2>
+              <h2 className="text-lg font-bold">{t("totals.past8")}</h2>
               <ul className="mt-2 divide-y divide-[#D5E0E0] overflow-hidden rounded-xl border border-[#D5E0E0] bg-white">
                 {recentWeeks.map((week) => {
                   const selected = week.offset === picker.offset;
@@ -380,7 +393,7 @@ export default function WindowsTotalsPage() {
                           <span className="min-w-0">
                             <span className="block font-semibold">{week.label}</span>
                             <span className="block text-sm text-slate-500">
-                              {week.sub} · {week.count} job{week.count === 1 ? "" : "s"}
+                              {week.sub} · {t("jobCount", { n: week.count })}
                             </span>
                           </span>
                           <span className="shrink-0 font-bold tabular-nums">{formatMoney(week.total)}</span>

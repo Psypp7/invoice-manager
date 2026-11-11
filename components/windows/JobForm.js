@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import WindowsFrame from "./WindowsFrame";
 import { supabase } from "../../lib/supabase";
+import { translate, useLang } from "../../lib/windowsLang";
 import {
   SURVEY_BUCKET,
   compressImage,
@@ -54,6 +55,7 @@ function buildRows(priceList, savedItems = []) {
 }
 
 export default function JobForm({ jobId = null }) {
+  const { t } = useLang();
   const router = useRouter();
   const cameraInput = useRef(null);
   const galleryInput = useRef(null);
@@ -117,7 +119,7 @@ export default function JobForm({ jobId = null }) {
           );
         }
       } catch (e) {
-        setError(e.message || "This job could not be loaded.");
+        setError(e.message || translate("job.loadError"));
       } finally {
         setLoading(false);
       }
@@ -181,7 +183,7 @@ export default function JobForm({ jobId = null }) {
           { path, url: signed?.signedUrl || URL.createObjectURL(body) },
         ]);
       } catch (e) {
-        setError(`A photo could not be uploaded: ${e.message || "try again."}`);
+        setError(t("job.photoError", { reason: e.message || "" }));
       } finally {
         setUploading((n) => n - 1);
       }
@@ -198,7 +200,7 @@ export default function JobForm({ jobId = null }) {
     setError("");
 
     if (!jobNumber.trim()) {
-      setError("Add the job number before saving.");
+      setError(t("job.needNumber"));
       return;
     }
 
@@ -206,12 +208,12 @@ export default function JobForm({ jobId = null }) {
       (r) => r.extra && Number(r.qty) > 0 && (!String(r.name).trim() || r.price === "")
     );
     if (badExtra) {
-      setError("Each extra item needs a name and a price.");
+      setError(t("job.extraNeeds"));
       return;
     }
 
     if (uploading > 0) {
-      setError("Wait for the photos to finish uploading.");
+      setError(t("job.waitPhotos"));
       return;
     }
 
@@ -249,14 +251,14 @@ export default function JobForm({ jobId = null }) {
 
       router.push("/windows");
     } catch (e) {
-      setError(e.message || "The job could not be saved.");
+      setError(e.message || t("job.saveError"));
       setSaving(false);
     }
   }
 
   async function deleteJob() {
     if (!jobId) return;
-    if (!window.confirm(`Delete job ${jobNumber || ""}? This cannot be undone.`)) return;
+    if (!window.confirm(t("job.confirmDelete", { n: jobNumber || "" }))) return;
 
     setSaving(true);
     try {
@@ -273,7 +275,7 @@ export default function JobForm({ jobId = null }) {
 
       router.push("/windows");
     } catch (e) {
-      setError(e.message || "The job could not be deleted.");
+      setError(e.message || t("job.deleteError"));
       setSaving(false);
     }
   }
@@ -284,7 +286,7 @@ export default function JobForm({ jobId = null }) {
   if (loading) {
     return (
       <WindowsFrame>
-        <p className="mt-8 text-slate-500">Loading…</p>
+        <p className="mt-8 text-slate-500">{t("loading")}</p>
       </WindowsFrame>
     );
   }
@@ -293,26 +295,26 @@ export default function JobForm({ jobId = null }) {
     <WindowsFrame>
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold tracking-tight">
-          {jobId ? `Job ${jobNumber}` : "New job"}
+          {jobId ? t("job.title", { n: jobNumber }) : t("job.newTitle")}
         </h1>
         <Link href="/windows" className="text-sm font-semibold text-[#0F766E]">
-          Back to jobs
+          {t("job.back")}
         </Link>
       </div>
 
       {/* Job details */}
       <section className="mt-5 grid grid-cols-2 gap-3">
         <label className="col-span-1">
-          <span className="mb-1 block text-sm font-semibold">Job number</span>
+          <span className="mb-1 block text-sm font-semibold">{t("job.number")}</span>
           <input
             value={jobNumber}
             onChange={(e) => setJobNumber(e.target.value)}
-            placeholder="e.g. 4512"
+            placeholder={t("job.numberHint")}
             className={field}
           />
         </label>
         <label className="col-span-1">
-          <span className="mb-1 block text-sm font-semibold">Date</span>
+          <span className="mb-1 block text-sm font-semibold">{t("job.date")}</span>
           <input
             type="date"
             value={jobDate}
@@ -321,11 +323,11 @@ export default function JobForm({ jobId = null }) {
           />
         </label>
         <label className="col-span-2">
-          <span className="mb-1 block text-sm font-semibold">Address</span>
+          <span className="mb-1 block text-sm font-semibold">{t("job.address")}</span>
           <input
             value={address}
             onChange={(e) => setAddress(e.target.value)}
-            placeholder="House or customer"
+            placeholder={t("job.addressHint")}
             className={field}
           />
         </label>
@@ -333,7 +335,7 @@ export default function JobForm({ jobId = null }) {
 
       {/* Survey photos */}
       <section className="mt-7">
-        <h2 className="text-lg font-bold">Survey photos</h2>
+        <h2 className="text-lg font-bold">{t("job.photos")}</h2>
 
         <div className="mt-3 grid grid-cols-3 gap-2 sm:grid-cols-4">
           {photos.map((photo) => (
@@ -345,9 +347,9 @@ export default function JobForm({ jobId = null }) {
             >
               {photo.url ? (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src={photo.url} alt="Survey photo" className="h-full w-full object-cover" />
+                <img src={photo.url} alt={t("job.photoAlt")} className="h-full w-full object-cover" />
               ) : (
-                <span className="text-xs text-slate-500">Photo</span>
+                <span className="text-xs text-slate-500">{t("job.photo")}</span>
               )}
             </button>
           ))}
@@ -357,7 +359,7 @@ export default function JobForm({ jobId = null }) {
               key={`up-${i}`}
               className="flex aspect-square animate-pulse items-center justify-center rounded-lg bg-[#DCE7E7] text-xs text-slate-600"
             >
-              Uploading…
+              {t("job.uploading")}
             </div>
           ))}
         </div>
@@ -368,14 +370,14 @@ export default function JobForm({ jobId = null }) {
             onClick={() => cameraInput.current?.click()}
             className="rounded-xl bg-[#13232E] py-3 font-semibold text-white hover:bg-[#1E3442]"
           >
-            Take photo
+            {t("job.takePhoto")}
           </button>
           <button
             type="button"
             onClick={() => galleryInput.current?.click()}
             className="rounded-xl border border-[#13232E] bg-white py-3 font-semibold hover:bg-slate-50"
           >
-            Choose from phone
+            {t("job.choosePhoto")}
           </button>
         </div>
 
@@ -406,9 +408,9 @@ export default function JobForm({ jobId = null }) {
       {/* Calculator */}
       <section className="mt-7">
         <div className="flex items-baseline justify-between">
-          <h2 className="text-lg font-bold">What you did</h2>
+          <h2 className="text-lg font-bold">{t("whatYouDid")}</h2>
           <Link href="/windows/prices" className="text-sm font-semibold text-[#0F766E]">
-            Edit prices
+            {t("job.editPrices")}
           </Link>
         </div>
 
@@ -428,8 +430,8 @@ export default function JobForm({ jobId = null }) {
                       <input
                         value={row.name}
                         onChange={(e) => updateRow(row.key, "name", e.target.value)}
-                        placeholder="Other item"
-                        aria-label="Item name"
+                        placeholder={t("job.otherItem")}
+                        aria-label={t("job.itemName")}
                         className="min-w-0 flex-1 rounded-md border border-[#C9D6D6] px-2 py-2 text-base"
                       />
                       <label className="flex items-center rounded-md border border-[#C9D6D6]">
@@ -441,7 +443,7 @@ export default function JobForm({ jobId = null }) {
                           }
                           inputMode="decimal"
                           placeholder="0"
-                          aria-label="Price each"
+                          aria-label={t("job.priceEach")}
                           className="w-16 bg-transparent px-1 py-2 text-right text-base tabular-nums focus:outline-none"
                         />
                       </label>
@@ -450,7 +452,7 @@ export default function JobForm({ jobId = null }) {
                     <>
                       <p className="font-semibold">{row.name}</p>
                       <p className="text-sm text-slate-500">
-                        {formatMoney(row.price)} each
+                        {t("job.each", { price: formatMoney(row.price) })}
                       </p>
                     </>
                   )}
@@ -465,7 +467,7 @@ export default function JobForm({ jobId = null }) {
                   <button
                     type="button"
                     onClick={() => setQty(row.key, Number(row.qty) - 1)}
-                    aria-label={`One less ${row.name || "item"}`}
+                    aria-label={t("job.oneLess", { name: row.name || "" })}
                     className="h-12 w-12 rounded-l-xl border border-[#C9D6D6] text-2xl font-bold text-[#13232E] active:bg-slate-100"
                   >
                     −
@@ -475,13 +477,13 @@ export default function JobForm({ jobId = null }) {
                     onChange={(e) => setQty(row.key, e.target.value.replace(/\D/g, ""))}
                     onFocus={(e) => e.target.select()}
                     inputMode="numeric"
-                    aria-label={`How many ${row.name || "items"}`}
+                    aria-label={t("job.howMany", { name: row.name || "" })}
                     className="h-12 w-12 border-y border-[#C9D6D6] text-center text-lg font-bold tabular-nums focus:outline-none"
                   />
                   <button
                     type="button"
                     onClick={() => setQty(row.key, Number(row.qty) + 1)}
-                    aria-label={`One more ${row.name || "item"}`}
+                    aria-label={t("job.oneMore", { name: row.name || "" })}
                     className="h-12 w-12 rounded-r-xl bg-[#0F766E] text-2xl font-bold text-white active:bg-[#0B5F58]"
                   >
                     +
@@ -492,7 +494,7 @@ export default function JobForm({ jobId = null }) {
                   <button
                     type="button"
                     onClick={() => removeExtra(row.key)}
-                    aria-label="Remove this item"
+                    aria-label={t("job.removeItem")}
                     className="px-1 text-red-700"
                   >
                     ✕
@@ -508,19 +510,19 @@ export default function JobForm({ jobId = null }) {
           onClick={addExtra}
           className="mt-3 w-full rounded-xl border-2 border-dashed border-[#9FB8B8] py-3 font-semibold text-[#0F766E] hover:bg-white"
         >
-          + Other item for this job
+          {t("job.addOther")}
         </button>
       </section>
 
       {/* Notes */}
       <section className="mt-7">
         <label>
-          <span className="mb-1 block text-lg font-bold">Notes</span>
+          <span className="mb-1 block text-lg font-bold">{t("job.notes")}</span>
           <textarea
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
             rows={3}
-            placeholder="Anything to remember about this job"
+            placeholder={t("job.notesHint")}
             className={field}
           />
         </label>
@@ -533,7 +535,7 @@ export default function JobForm({ jobId = null }) {
           disabled={saving}
           className="mt-8 text-sm font-semibold text-red-700 hover:underline"
         >
-          Delete this job
+          {t("job.delete")}
         </button>
       ) : null}
 
@@ -548,7 +550,7 @@ export default function JobForm({ jobId = null }) {
         <div className="mx-auto flex max-w-2xl items-center gap-4 px-4 py-3" style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))" }}>
           <div className="min-w-0 flex-1">
             <p className="text-sm text-slate-300">
-              {itemCount === 0 ? "Nothing added yet" : `${itemCount} item${itemCount === 1 ? "" : "s"}`}
+              {itemCount === 0 ? t("job.nothingYet") : t("job.itemCount", { n: itemCount })}
             </p>
             <p className="text-3xl font-extrabold tabular-nums tracking-tight" aria-live="polite">
               {formatMoney(total)}
@@ -560,7 +562,7 @@ export default function JobForm({ jobId = null }) {
             disabled={saving}
             className="rounded-xl bg-[#7FD1C7] px-6 py-4 text-lg font-bold text-[#13232E] hover:bg-[#9BDDD4] disabled:opacity-60"
           >
-            {saving ? "Saving…" : "Save job"}
+            {saving ? t("saving") : t("job.save")}
           </button>
         </div>
       </div>
@@ -570,7 +572,7 @@ export default function JobForm({ jobId = null }) {
         <div
           role="dialog"
           aria-modal="true"
-          aria-label="Survey photo"
+          aria-label={t("job.photoAlt")}
           className="fixed inset-0 z-30 flex flex-col bg-black/90"
           onClick={() => setViewing(null)}
         >
@@ -580,19 +582,19 @@ export default function JobForm({ jobId = null }) {
               onClick={() => removePhoto(viewing.path)}
               className="rounded-lg bg-red-700 px-4 py-2 font-semibold text-white"
             >
-              Delete photo
+              {t("job.deletePhoto")}
             </button>
             <button
               type="button"
               onClick={() => setViewing(null)}
               className="rounded-lg bg-white px-4 py-2 font-semibold text-[#13232E]"
             >
-              Close
+              {t("close")}
             </button>
           </div>
           <div className="flex flex-1 items-center justify-center overflow-auto p-2">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={viewing.url} alt="Survey photo" className="max-h-full max-w-full object-contain" />
+            <img src={viewing.url} alt={t("job.photoAlt")} className="max-h-full max-w-full object-contain" />
           </div>
         </div>
       ) : null}

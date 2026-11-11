@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import WindowsFrame from "../../components/windows/WindowsFrame";
 import { supabase } from "../../lib/supabase";
+import { translate, useLang } from "../../lib/windowsLang";
 import {
   formatJobDate,
   formatMoney,
@@ -21,15 +22,16 @@ function startOfWeekIso(iso) {
   return local.toISOString().slice(0, 10);
 }
 
-function monthLabel(iso) {
+function monthLabel(iso, locale) {
   const [y, m] = iso.split("-").map(Number);
-  return new Date(y, m - 1, 1).toLocaleDateString("en-GB", {
+  return new Date(y, m - 1, 1).toLocaleDateString(locale, {
     month: "long",
     year: "numeric",
   });
 }
 
 export default function WindowsJobsPage() {
+  const { t, locale } = useLang();
   const [jobs, setJobs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -47,7 +49,7 @@ export default function WindowsJobsPage() {
         if (loadError) throw loadError;
         setJobs(data || []);
       } catch (e) {
-        setError(e.message || "Your jobs could not be loaded.");
+        setError(e.message || translate("jobs.loadError"));
       } finally {
         setLoading(false);
       }
@@ -93,20 +95,20 @@ export default function WindowsJobsPage() {
 
     return [...byMonth.entries()].map(([key, list]) => ({
       key,
-      label: monthLabel(`${key}-01`),
+      label: monthLabel(`${key}-01`, locale),
       jobs: list,
       total: roundMoney(list.reduce((n, job) => n + Number(job.total || 0), 0)),
     }));
-  }, [jobs, search]);
+  }, [jobs, search, locale]);
 
   return (
     <WindowsFrame>
       {/* Earnings */}
       <section className="grid grid-cols-3 overflow-hidden rounded-xl border border-[#D5E0E0] bg-white">
         {[
-          { label: "Today", value: totals.today },
-          { label: "This week", value: totals.week },
-          { label: "This month", value: totals.month },
+          { label: t("jobs.today"), value: totals.today },
+          { label: t("jobs.thisWeek"), value: totals.week },
+          { label: t("jobs.thisMonth"), value: totals.month },
         ].map((stat, index) => (
           <div
             key={stat.label}
@@ -124,19 +126,19 @@ export default function WindowsJobsPage() {
         href="/windows/jobs/new"
         className="mt-4 block rounded-xl bg-[#0F766E] py-4 text-center text-lg font-bold text-white hover:bg-[#0B5F58]"
       >
-        + New job
+        {t("jobs.new")}
       </Link>
 
       <input
         type="search"
         value={search}
         onChange={(e) => setSearch(e.target.value)}
-        placeholder="Search job number or address"
-        aria-label="Search jobs"
+        placeholder={t("jobs.search")}
+        aria-label={t("jobs.searchLabel")}
         className="mt-5 w-full rounded-lg border border-[#C9D6D6] bg-white px-3 py-3 text-base focus:border-[#0F766E] focus:outline-none focus:ring-2 focus:ring-[#0F766E]/25"
       />
 
-      {loading ? <p className="mt-8 text-slate-500">Loading jobs…</p> : null}
+      {loading ? <p className="mt-8 text-slate-500">{t("loading")}</p> : null}
 
       {error ? (
         <p role="alert" className="mt-5 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-800">
@@ -146,16 +148,14 @@ export default function WindowsJobsPage() {
 
       {!loading && !error && jobs.length === 0 ? (
         <div className="mt-8 rounded-xl border-2 border-dashed border-[#9FB8B8] p-8 text-center">
-          <p className="font-semibold">No jobs yet</p>
-          <p className="mt-1 text-sm text-slate-600">
-            Tap New job to photograph the survey and add up what you fitted.
-          </p>
+          <p className="font-semibold">{t("jobs.emptyTitle")}</p>
+          <p className="mt-1 text-sm text-slate-600">{t("jobs.emptyText")}</p>
         </div>
       ) : null}
 
       {!loading && jobs.length > 0 && groups.length === 0 ? (
         <p className="mt-8 text-center text-slate-500">
-          No jobs match &ldquo;{search}&rdquo;.
+          {t("jobs.noMatch", { q: search })}
         </p>
       ) : null}
 
@@ -182,17 +182,17 @@ export default function WindowsJobsPage() {
                         {formatJobDate(job.job_date)}
                       </p>
                       <p className="mt-0.5 font-bold">
-                        Job {job.job_number}
+                        {t("job.title", { n: job.job_number })}
                         {job.address ? (
                           <span className="font-normal text-slate-600">, {job.address}</span>
                         ) : null}
                       </p>
                       <p className="mt-1 text-sm text-slate-700">
-                        {summary || "No items added"}
+                        {summary || t("jobs.noItems")}
                       </p>
                       {photoCount ? (
                         <p className="mt-1 text-xs text-slate-500">
-                          {photoCount} survey photo{photoCount === 1 ? "" : "s"}
+                          {t("jobs.photos", { n: photoCount })}
                         </p>
                       ) : null}
                     </div>

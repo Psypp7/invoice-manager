@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import WindowsFrame from "../../../components/windows/WindowsFrame";
 import PeriodPicker, { periodFor } from "../../../components/windows/PeriodPicker";
 import { supabase } from "../../../lib/supabase";
+import { translate, useLang } from "../../../lib/windowsLang";
 import {
   buildBalance,
   formatJobDate,
@@ -13,8 +14,8 @@ import {
 } from "../../../lib/windows";
 
 const METHODS = {
-  cash: { label: "Cash", tone: "bg-[#E6F4EA] text-[#1E6B34]" },
-  bank: { label: "Bank transfer", tone: "bg-[#E3ECF7] text-[#1F4E8C]" },
+  cash: { key: "cash", tone: "bg-[#E6F4EA] text-[#1E6B34]" },
+  bank: { key: "bank", tone: "bg-[#E3ECF7] text-[#1F4E8C]" },
 };
 
 function emptyForm(jobId = "") {
@@ -23,15 +24,16 @@ function emptyForm(jobId = "") {
 
 function dayHeading(iso) {
   const today = todayIso();
-  if (iso === today) return "Today";
+  if (iso === today) return translate("jobs.today");
   const d = new Date();
   d.setDate(d.getDate() - 1);
   const yesterday = new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
-  if (iso === yesterday) return "Yesterday";
+  if (iso === yesterday) return translate("yesterday");
   return formatJobDate(iso);
 }
 
 export default function WindowsMoneyInPage() {
+  const { t } = useLang();
   const [userId, setUserId] = useState(null);
   const [payments, setPayments] = useState([]);
   const [jobs, setJobs] = useState([]);
@@ -59,7 +61,7 @@ export default function WindowsMoneyInPage() {
 
     if (paymentsResult.error) {
       throw paymentsResult.error.message?.includes("job_id")
-        ? new Error("Run the Supabase update (mp-balance.sql) first.")
+        ? new Error(translate("runBalanceSql"))
         : paymentsResult.error;
     }
     if (jobsResult.error) throw jobsResult.error;
@@ -85,7 +87,7 @@ export default function WindowsMoneyInPage() {
           setSheetOpen(true);
         }
       } catch (e) {
-        setPageError(e.message || "Your payments could not be loaded.");
+        setPageError(e.message || translate("money.loadError"));
       } finally {
         setLoading(false);
       }
@@ -180,11 +182,11 @@ export default function WindowsMoneyInPage() {
 
     const amount = roundMoney(form.amount);
     if (!(amount > 0)) {
-      setFormError("Enter how much you received.");
+      setFormError(t("money.needAmount"));
       return;
     }
     if (!form.paid_on) {
-      setFormError("Pick the date you received it.");
+      setFormError(t("money.needDate"));
       return;
     }
 
@@ -205,12 +207,15 @@ export default function WindowsMoneyInPage() {
 
       await loadAll();
       setToast(
-        `${form.id ? "Updated" : "Saved"}: ${formatMoney(amount)} ${METHODS[form.method].label.toLowerCase()}`
+        t(form.id ? "money.updatedToast" : "money.savedToast", {
+          amount: formatMoney(amount),
+          method: t(METHODS[form.method].key).toLowerCase(),
+        })
       );
       setSheetOpen(false);
       setForm(emptyForm());
     } catch (e) {
-      setFormError(e.message || "The payment could not be saved.");
+      setFormError(e.message || t("money.saveError"));
     } finally {
       setSaving(false);
     }
@@ -218,18 +223,18 @@ export default function WindowsMoneyInPage() {
 
   async function deletePayment() {
     if (!form.id) return;
-    if (!window.confirm("Delete this payment? This cannot be undone.")) return;
+    if (!window.confirm(t("money.confirmDelete"))) return;
 
     setSaving(true);
     try {
       const { error } = await supabase.from("mp_payments").delete().eq("id", form.id);
       if (error) throw error;
       await loadAll();
-      setToast("Payment deleted");
+      setToast(t("money.deletedToast"));
       setSheetOpen(false);
       setForm(emptyForm());
     } catch (e) {
-      setFormError(e.message || "The payment could not be deleted.");
+      setFormError(e.message || t("money.deleteError"));
     } finally {
       setSaving(false);
     }
@@ -242,10 +247,8 @@ export default function WindowsMoneyInPage() {
 
   return (
     <WindowsFrame>
-      <h1 className="text-2xl font-bold tracking-tight">Money in</h1>
-      <p className="mt-1 text-sm text-slate-600">
-        Every payment you have received, in cash or by bank transfer.
-      </p>
+      <h1 className="text-2xl font-bold tracking-tight">{t("nav.moneyIn")}</h1>
+      <p className="mt-1 text-sm text-slate-600">{t("money.intro")}</p>
 
       <div className="mt-5">
         <PeriodPicker value={picker} onChange={setPicker} />
@@ -258,23 +261,23 @@ export default function WindowsMoneyInPage() {
       ) : null}
 
       {loading ? (
-        <p className="mt-8 text-slate-500">Loading…</p>
+        <p className="mt-8 text-slate-500">{t("loading")}</p>
       ) : (
         <>
           {/* Summary */}
           <section className="mt-4 rounded-2xl bg-[#13232E] p-5 text-white">
-            <p className="text-sm text-slate-300">Received</p>
+            <p className="text-sm text-slate-300">{t("money.received")}</p>
             <p className="mt-0.5 text-4xl font-extrabold tabular-nums tracking-tight">
               {formatMoney(result.total)}
             </p>
             <p className="text-sm text-slate-300">
-              {result.count} payment{result.count === 1 ? "" : "s"}
+              {t("paymentCount", { n: result.count })}
             </p>
 
             <div
               className="mt-4 flex h-2 gap-[2px] overflow-hidden rounded-full bg-white/10"
               role="img"
-              aria-label={`Cash ${formatMoney(result.cash)}, bank transfer ${formatMoney(result.bank)}`}
+              aria-label={`${t("cash")} ${formatMoney(result.cash)}, ${t("bank")} ${formatMoney(result.bank)}`}
             >
               {result.cash > 0 ? (
                 <span className="h-full rounded-l-full bg-[#86D19A]" style={{ width: `${cashShare}%` }} />
@@ -288,14 +291,14 @@ export default function WindowsMoneyInPage() {
               <div>
                 <p className="flex items-center gap-1.5 text-sm text-slate-300">
                   <span aria-hidden="true" className="h-2.5 w-2.5 rounded-full bg-[#86D19A]" />
-                  Cash
+                  {t("cash")}
                 </p>
                 <p className="text-xl font-bold tabular-nums">{formatMoney(result.cash)}</p>
               </div>
               <div>
                 <p className="flex items-center gap-1.5 text-sm text-slate-300">
                   <span aria-hidden="true" className="h-2.5 w-2.5 rounded-full bg-[#8DB5EA]" />
-                  Bank transfer
+                  {t("bank")}
                 </p>
                 <p className="text-xl font-bold tabular-nums">{formatMoney(result.bank)}</p>
               </div>
@@ -305,10 +308,8 @@ export default function WindowsMoneyInPage() {
           {/* Payments, by day */}
           {result.days.length === 0 ? (
             <div className="mt-5 rounded-xl border-2 border-dashed border-[#9FB8B8] p-6 text-center">
-              <p className="font-semibold">Nothing received in this period</p>
-              <p className="mt-1 text-sm text-slate-600">
-                Tap Add money in when you get paid.
-              </p>
+              <p className="font-semibold">{t("money.emptyTitle")}</p>
+              <p className="mt-1 text-sm text-slate-600">{t("money.emptyText")}</p>
             </div>
           ) : (
             result.days.map((day) => (
@@ -324,7 +325,7 @@ export default function WindowsMoneyInPage() {
                 <ul className="mt-1.5 divide-y divide-[#D5E0E0] overflow-hidden rounded-xl border border-[#D5E0E0] bg-white">
                   {day.items.map((payment) => {
                     const job = payment.job_id ? jobById.get(payment.job_id) : null;
-                    const method = METHODS[payment.method] || { label: payment.method, tone: "" };
+                    const method = METHODS[payment.method] || { key: payment.method, tone: "" };
 
                     return (
                       <li key={payment.id}>
@@ -335,12 +336,12 @@ export default function WindowsMoneyInPage() {
                         >
                           <span className="min-w-0 flex-1">
                             <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-bold ${method.tone}`}>
-                              {method.label}
+                              {t(method.key)}
                             </span>
                             <span className="mt-1 block truncate text-sm font-semibold text-[#13232E]">
                               {job
-                                ? `Job ${job.job_number}${job.address ? `, ${job.address}` : ""}`
-                                : "Not for one job"}
+                                ? `${t("job.title", { n: job.job_number })}${job.address ? `, ${job.address}` : ""}`
+                                : t("money.noJob")}
                             </span>
                             {payment.note ? (
                               <span className="block truncate text-sm text-slate-500">{payment.note}</span>
@@ -360,7 +361,7 @@ export default function WindowsMoneyInPage() {
 
           {result.days.length ? (
             <p className="mt-3 text-center text-xs text-slate-500">
-              Tap a payment to change or delete it.
+              {t("money.tapToEdit")}
             </p>
           ) : null}
         </>
@@ -378,7 +379,7 @@ export default function WindowsMoneyInPage() {
             disabled={loading || Boolean(pageError)}
             className="w-full rounded-xl bg-[#0F766E] py-4 text-lg font-bold text-white shadow-lg hover:bg-[#0B5F58] disabled:opacity-50"
           >
-            + Add money in
+            {t("money.add")}
           </button>
         </div>
       </div>
@@ -410,14 +411,14 @@ export default function WindowsMoneyInPage() {
             <div className="mx-auto mb-3 h-1.5 w-10 rounded-full bg-slate-300 sm:hidden" aria-hidden="true" />
             <div className="flex items-center justify-between">
               <h2 id="sheet-title" className="text-xl font-bold">
-                {form.id ? "Change payment" : "Add money in"}
+                {form.id ? t("money.change") : t("money.addTitle")}
               </h2>
               <button
                 type="button"
                 onClick={() => setSheetOpen(false)}
                 className="rounded-lg px-3 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100"
               >
-                Close
+                {t("close")}
               </button>
             </div>
 
@@ -435,13 +436,13 @@ export default function WindowsMoneyInPage() {
                       : "border-[#C9D6D6] bg-white text-[#13232E]"
                   }`}
                 >
-                  {method.label}
+                  {t(method.key)}
                 </button>
               ))}
             </div>
 
             <label className="mt-4 block">
-              <span className="mb-1 block text-sm font-semibold">Amount</span>
+              <span className="mb-1 block text-sm font-semibold">{t("money.amount")}</span>
               <span className="flex items-center rounded-xl border-2 border-[#C9D6D6] bg-white focus-within:border-[#0F766E]">
                 <span className="pl-4 text-2xl font-bold text-slate-400">£</span>
                 <input
@@ -451,7 +452,7 @@ export default function WindowsMoneyInPage() {
                   }
                   inputMode="decimal"
                   placeholder="0.00"
-                  aria-label="Amount received"
+                  aria-label={t("money.amountLabel")}
                   className="w-full rounded-xl bg-transparent px-2 py-3 text-2xl font-bold tabular-nums focus:outline-none"
                 />
               </span>
@@ -459,18 +460,18 @@ export default function WindowsMoneyInPage() {
 
             <label className="mt-4 block">
               <span className="mb-1 block text-sm font-semibold">
-                Which job? <span className="font-normal text-slate-500">(optional)</span>
+                {t("money.whichJob")} <span className="font-normal text-slate-500">{t("optional")}</span>
               </span>
               <select
                 value={form.job_id}
                 onChange={(e) => setForm((f) => ({ ...f, job_id: e.target.value }))}
                 className={field}
               >
-                <option value="">Not for one job (comes off the oldest first)</option>
+                <option value="">{t("money.noJobOption")}</option>
                 {jobOptions.map((job) => (
                   <option key={job.id} value={job.id}>
-                    {`Job ${job.job_number}${job.address ? `, ${job.address}` : ""} · ${
-                      job.left > 0 ? `${formatMoney(job.left)} left` : "paid"
+                    {`${t("job.title", { n: job.job_number })}${job.address ? `, ${job.address}` : ""} · ${
+                      job.left > 0 ? t("money.left", { amount: formatMoney(job.left) }) : t("money.paidLower")
                     }`}
                   </option>
                 ))}
@@ -480,21 +481,21 @@ export default function WindowsMoneyInPage() {
             {pickedJob && pickedJob.left > 0 ? (
               <div className="mt-2 flex items-center justify-between gap-3 rounded-lg bg-[#F1FAF8] px-3 py-2 text-sm">
                 <span>
-                  Still owes <strong className="tabular-nums">{formatMoney(pickedJob.left)}</strong>
+                  {t("money.stillOwes")} <strong className="tabular-nums">{formatMoney(pickedJob.left)}</strong>
                 </span>
                 <button
                   type="button"
                   onClick={() => setForm((f) => ({ ...f, amount: String(pickedJob.left) }))}
                   className="shrink-0 rounded-md border border-[#0F766E] px-2 py-1 font-semibold text-[#0F766E] hover:bg-white"
                 >
-                  Use this amount
+                  {t("money.useAmount")}
                 </button>
               </div>
             ) : null}
 
             <div className="mt-4 grid grid-cols-2 gap-3">
               <label>
-                <span className="mb-1 block text-sm font-semibold">Date received</span>
+                <span className="mb-1 block text-sm font-semibold">{t("money.date")}</span>
                 <input
                   type="date"
                   value={form.paid_on}
@@ -504,12 +505,12 @@ export default function WindowsMoneyInPage() {
               </label>
               <label>
                 <span className="mb-1 block text-sm font-semibold">
-                  Note <span className="font-normal text-slate-500">(optional)</span>
+                  {t("money.note")} <span className="font-normal text-slate-500">{t("optional")}</span>
                 </span>
                 <input
                   value={form.note}
                   onChange={(e) => setForm((f) => ({ ...f, note: e.target.value }))}
-                  placeholder="Who paid"
+                  placeholder={t("money.noteHint")}
                   className={field}
                 />
               </label>
@@ -526,7 +527,7 @@ export default function WindowsMoneyInPage() {
               disabled={saving}
               className="mt-5 w-full rounded-xl bg-[#0F766E] py-4 text-lg font-bold text-white hover:bg-[#0B5F58] disabled:opacity-60"
             >
-              {saving ? "Saving…" : form.id ? "Save changes" : "Save payment"}
+              {saving ? t("saving") : form.id ? t("money.saveChanges") : t("money.save")}
             </button>
 
             {form.id ? (
@@ -536,7 +537,7 @@ export default function WindowsMoneyInPage() {
                 disabled={saving}
                 className="mt-3 w-full rounded-xl py-3 text-sm font-semibold text-red-700 hover:bg-red-50"
               >
-                Delete this payment
+                {t("money.delete")}
               </button>
             ) : null}
           </form>

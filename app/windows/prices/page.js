@@ -3,12 +3,14 @@
 import { useEffect, useState } from "react";
 import WindowsFrame from "../../../components/windows/WindowsFrame";
 import { supabase } from "../../../lib/supabase";
+import { translate, useLang } from "../../../lib/windowsLang";
 import { loadPriceList, roundMoney } from "../../../lib/windows";
 
 let tempKey = 0;
 const newKey = () => `new-${++tempKey}`;
 
 export default function WindowsPricesPage() {
+  const { t } = useLang();
   const [userId, setUserId] = useState(null);
   const [rows, setRows] = useState([]);
   const [removedIds, setRemovedIds] = useState([]);
@@ -37,7 +39,7 @@ export default function WindowsPricesPage() {
       } catch (error) {
         setMessage({
           tone: "error",
-          text: error.message || "The price list could not be loaded.",
+          text: error.message || translate("prices.loadError"),
         });
       } finally {
         setLoading(false);
@@ -91,7 +93,7 @@ export default function WindowsPricesPage() {
     if (missing) {
       setMessage({
         tone: "error",
-        text: "Every item needs a name and a price.",
+        text: t("prices.needBoth"),
       });
       return;
     }
@@ -153,11 +155,11 @@ export default function WindowsPricesPage() {
         })
       );
       setRemovedIds([]);
-      setMessage({ tone: "ok", text: "Prices saved." });
+      setMessage({ tone: "ok", text: t("prices.saved") });
     } catch (error) {
       setMessage({
         tone: "error",
-        text: error.message || "The prices could not be saved.",
+        text: error.message || t("prices.saveError"),
       });
     } finally {
       setSaving(false);
@@ -166,14 +168,11 @@ export default function WindowsPricesPage() {
 
   return (
     <WindowsFrame>
-      <h1 className="text-2xl font-bold tracking-tight">Prices</h1>
-      <p className="mt-1 text-sm text-slate-600">
-        What each job item pays. Changing a price here only affects new
-        jobs; jobs you have already saved keep the price they had.
-      </p>
+      <h1 className="text-2xl font-bold tracking-tight">{t("nav.prices")}</h1>
+      <p className="mt-1 text-sm text-slate-600">{t("prices.intro")}</p>
 
       {loading ? (
-        <p className="mt-8 text-slate-500">Loading prices…</p>
+        <p className="mt-8 text-slate-500">{t("loading")}</p>
       ) : (
         <>
           <ul className="mt-6 divide-y divide-[#D5E0E0] overflow-hidden rounded-xl border border-[#D5E0E0] bg-white">
@@ -184,7 +183,7 @@ export default function WindowsPricesPage() {
                     type="button"
                     onClick={() => move(index, -1)}
                     disabled={index === 0}
-                    aria-label={`Move ${row.name || "item"} up`}
+                    aria-label={t("prices.moveUp", { name: row.name || "" })}
                     className="rounded px-2 text-slate-500 hover:bg-slate-100 disabled:opacity-25"
                   >
                     ▲
@@ -193,7 +192,7 @@ export default function WindowsPricesPage() {
                     type="button"
                     onClick={() => move(index, 1)}
                     disabled={index === rows.length - 1}
-                    aria-label={`Move ${row.name || "item"} down`}
+                    aria-label={t("prices.moveDown", { name: row.name || "" })}
                     className="rounded px-2 text-slate-500 hover:bg-slate-100 disabled:opacity-25"
                   >
                     ▼
@@ -203,8 +202,8 @@ export default function WindowsPricesPage() {
                 <input
                   value={row.name}
                   onChange={(e) => update(row.key, "name", e.target.value)}
-                  placeholder="Item, e.g. Bay window"
-                  aria-label="Item name"
+                  placeholder={t("prices.itemHint")}
+                  aria-label={t("job.itemName")}
                   className="min-w-0 flex-1 rounded-lg border border-[#C9D6D6] px-3 py-3 text-base focus:border-[#0F766E] focus:outline-none focus:ring-2 focus:ring-[#0F766E]/25"
                 />
 
@@ -221,7 +220,7 @@ export default function WindowsPricesPage() {
                     }
                     inputMode="decimal"
                     placeholder="0"
-                    aria-label={`Price for ${row.name || "item"}`}
+                    aria-label={t("prices.priceFor", { name: row.name || "" })}
                     className="w-20 rounded-lg bg-transparent px-2 py-3 text-right text-base tabular-nums focus:outline-none"
                   />
                 </label>
@@ -229,7 +228,7 @@ export default function WindowsPricesPage() {
                 <button
                   type="button"
                   onClick={() => removeRow(row)}
-                  aria-label={`Remove ${row.name || "item"}`}
+                  aria-label={t("prices.remove", { name: row.name || "" })}
                   className="rounded-lg px-3 py-3 text-red-700 hover:bg-red-50"
                 >
                   ✕
@@ -239,7 +238,7 @@ export default function WindowsPricesPage() {
 
             {rows.length === 0 ? (
               <li className="p-5 text-center text-slate-500">
-                No items yet. Add your first one below.
+                {t("prices.empty")}
               </li>
             ) : null}
           </ul>
@@ -249,7 +248,7 @@ export default function WindowsPricesPage() {
             onClick={addRow}
             className="mt-3 w-full rounded-xl border-2 border-dashed border-[#9FB8B8] py-3 font-semibold text-[#0F766E] hover:bg-white"
           >
-            + Add item
+            {t("prices.add")}
           </button>
 
           {message ? (
@@ -271,7 +270,7 @@ export default function WindowsPricesPage() {
             disabled={saving}
             className="mt-4 w-full rounded-xl bg-[#0F766E] py-4 text-lg font-bold text-white hover:bg-[#0B5F58] disabled:opacity-60"
           >
-            {saving ? "Saving…" : "Save prices"}
+            {saving ? t("saving") : t("prices.save")}
           </button>
         </>
       )}

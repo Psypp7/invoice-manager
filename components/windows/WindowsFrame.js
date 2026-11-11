@@ -2,19 +2,62 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { useEffect } from "react";
 import { supabase } from "../../lib/supabase";
+import { LANGS, setLang, syncLangFromUser, useLang } from "../../lib/windowsLang";
 
 const NAV = [
-  { href: "/windows", label: "Jobs" },
-  { href: "/windows/payments", label: "Money in" },
-  { href: "/windows/balance", label: "Balance" },
-  { href: "/windows/earnings", label: "Totals" },
-  { href: "/windows/prices", label: "Prices" },
+  { href: "/windows", key: "nav.jobs" },
+  { href: "/windows/payments", key: "nav.moneyIn" },
+  { href: "/windows/balance", key: "nav.balance" },
+  { href: "/windows/earnings", key: "nav.totals" },
+  { href: "/windows/prices", key: "nav.prices" },
 ];
+
+function LanguageSwitch() {
+  const { lang, t } = useLang();
+
+  return (
+    <div
+      role="radiogroup"
+      aria-label={t("language")}
+      className="flex rounded-lg bg-white/10 p-0.5"
+    >
+      {LANGS.map((option) => (
+        <button
+          key={option.id}
+          type="button"
+          role="radio"
+          aria-checked={lang === option.id}
+          aria-label={option.label}
+          title={option.label}
+          onClick={() => setLang(option.id, supabase)}
+          className={`rounded-md px-2.5 py-1.5 text-xs font-bold ${
+            lang === option.id
+              ? "bg-white text-[#13232E]"
+              : "text-slate-300 hover:text-white"
+          }`}
+        >
+          {option.short}
+        </button>
+      ))}
+    </div>
+  );
+}
 
 export default function WindowsFrame({ children, wide = false }) {
   const pathname = usePathname();
   const router = useRouter();
+  const { t, lang } = useLang();
+
+  // Pick up the language saved on the account (e.g. set on another phone).
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => syncLangFromUser(data?.user));
+  }, []);
+
+  useEffect(() => {
+    document.documentElement.lang = lang;
+  }, [lang]);
 
   async function signOut() {
     await supabase.auth.signOut();
@@ -46,13 +89,16 @@ export default function WindowsFrame({ children, wide = false }) {
             </span>
           </Link>
 
-          <button
-            type="button"
-            onClick={signOut}
-            className="rounded-md px-3 py-2 text-sm text-slate-300 hover:bg-white/10 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#7FD1C7]"
-          >
-            Sign out
-          </button>
+          <div className="flex items-center gap-2">
+            <LanguageSwitch />
+            <button
+              type="button"
+              onClick={signOut}
+              className="rounded-md px-2 py-2 text-sm text-slate-300 hover:bg-white/10 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#7FD1C7]"
+            >
+              {t("signOut")}
+            </button>
+          </div>
         </div>
 
         <nav
@@ -77,7 +123,7 @@ export default function WindowsFrame({ children, wide = false }) {
                     : "border-transparent text-slate-400 hover:text-white"
                 }`}
               >
-                {item.label}
+                {t(item.key)}
               </Link>
             );
           })}

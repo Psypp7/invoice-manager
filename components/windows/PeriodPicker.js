@@ -1,6 +1,7 @@
 "use client";
 
 import { todayIso } from "../../lib/windows";
+import { locale, translate as tr, useLang } from "../../lib/windowsLang";
 
 // ============================================================
 // Periods. Weeks run Monday to Sunday.
@@ -29,7 +30,7 @@ export function mondayOf(iso) {
 }
 
 function short(iso, withYear = false) {
-  return fromIso(iso).toLocaleDateString("en-GB", {
+  return fromIso(iso).toLocaleDateString(locale(), {
     day: "numeric",
     month: "short",
     ...(withYear ? { year: "numeric" } : {}),
@@ -58,7 +59,7 @@ export function periodFor(mode, offset = 0, custom = {}) {
     const start = addDays(mondayOf(today), offset * 7);
     const end = addDays(start, 6);
     const label =
-      offset === 0 ? "This week" : offset === -1 ? "Last week" : `Week of ${short(start)}`;
+      offset === 0 ? tr("period.thisWeek") : offset === -1 ? tr("period.lastWeek") : tr("period.weekOf", { date: short(start) });
     return { start, end, label, sub: weekRangeText(start, end) };
   }
 
@@ -66,11 +67,11 @@ export function periodFor(mode, offset = 0, custom = {}) {
     const now = fromIso(today);
     const first = new Date(now.getFullYear(), now.getMonth() + offset, 1);
     const last = new Date(first.getFullYear(), first.getMonth() + 1, 0);
-    const name = first.toLocaleDateString("en-GB", { month: "long", year: "numeric" });
+    const name = first.toLocaleDateString(locale(), { month: "long", year: "numeric" });
     return {
       start: toIso(first),
       end: toIso(last),
-      label: offset === 0 ? "This month" : offset === -1 ? "Last month" : name,
+      label: offset === 0 ? tr("period.thisMonth") : offset === -1 ? tr("period.lastMonth") : name,
       sub: name,
     };
   }
@@ -80,8 +81,8 @@ export function periodFor(mode, offset = 0, custom = {}) {
     return {
       start: `${year}-01-01`,
       end: `${year}-12-31`,
-      label: offset === 0 ? "This year" : String(year),
-      sub: `Jan – Dec ${year}`,
+      label: offset === 0 ? tr("period.thisYear") : String(year),
+      sub: tr("period.janDec", { year }),
     };
   }
 
@@ -92,22 +93,23 @@ export function periodFor(mode, offset = 0, custom = {}) {
   return {
     start,
     end,
-    label: "Your dates",
+    label: tr("period.yourDates"),
     sub: `${short(start, true)} – ${short(end, true)}`,
   };
 }
 
 const MODES = [
-  { id: "week", label: "Week" },
-  { id: "month", label: "Month" },
-  { id: "year", label: "Year" },
-  { id: "custom", label: "Dates" },
+  { id: "week", key: "period.week" },
+  { id: "month", key: "period.month" },
+  { id: "year", key: "period.year" },
+  { id: "custom", key: "period.dates" },
 ];
 
 /**
  * Week / Month / Year / Dates, with arrows to step back and forward.
  */
 export default function PeriodPicker({ value, onChange }) {
+  const { t } = useLang();
   const { mode, offset, from, to } = value;
   const period = periodFor(mode, offset, { from, to });
 
@@ -118,7 +120,7 @@ export default function PeriodPicker({ value, onChange }) {
     <div>
       <div
         role="tablist"
-        aria-label="Period"
+        aria-label={t("period.label")}
         className="grid grid-cols-4 rounded-xl bg-[#DCE7E7] p-1"
       >
         {MODES.map((m) => (
@@ -142,7 +144,7 @@ export default function PeriodPicker({ value, onChange }) {
                 : "text-slate-600 hover:text-[#13232E]"
             }`}
           >
-            {m.label}
+            {t(m.key)}
           </button>
         ))}
       </div>
@@ -150,7 +152,7 @@ export default function PeriodPicker({ value, onChange }) {
       {mode === "custom" ? (
         <div className="mt-3 grid grid-cols-2 gap-3">
           <label>
-            <span className="mb-1 block text-sm font-semibold">From</span>
+            <span className="mb-1 block text-sm font-semibold">{t("period.from")}</span>
             <input
               type="date"
               value={from}
@@ -159,7 +161,7 @@ export default function PeriodPicker({ value, onChange }) {
             />
           </label>
           <label>
-            <span className="mb-1 block text-sm font-semibold">To</span>
+            <span className="mb-1 block text-sm font-semibold">{t("period.to")}</span>
             <input
               type="date"
               value={to}
@@ -173,7 +175,7 @@ export default function PeriodPicker({ value, onChange }) {
           <button
             type="button"
             onClick={() => onChange({ ...value, offset: offset - 1 })}
-            aria-label={`Previous ${mode}`}
+            aria-label={t("period.previous")}
             className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-[#C9D6D6] bg-white text-xl font-bold text-[#13232E] active:bg-slate-100"
           >
             ‹
@@ -188,7 +190,7 @@ export default function PeriodPicker({ value, onChange }) {
             type="button"
             onClick={() => onChange({ ...value, offset: offset + 1 })}
             disabled={offset >= 0}
-            aria-label={`Next ${mode}`}
+            aria-label={t("period.next")}
             className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-[#C9D6D6] bg-white text-xl font-bold text-[#13232E] active:bg-slate-100 disabled:opacity-30"
           >
             ›
@@ -202,7 +204,7 @@ export default function PeriodPicker({ value, onChange }) {
           onClick={() => onChange({ ...value, offset: 0 })}
           className="mx-auto mt-1 block text-sm font-semibold text-[#0F766E]"
         >
-          Back to {mode === "week" ? "this week" : mode === "month" ? "this month" : "this year"}
+          {t(mode === "week" ? "period.backWeek" : mode === "month" ? "period.backMonth" : "period.backYear")}
         </button>
       ) : null}
     </div>
